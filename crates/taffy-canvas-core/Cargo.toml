@@ -24,6 +24,16 @@ objc2 = "0.6.3"
 objc2-metal = "0.3.2"
 skia-safe = { workspace = true, features = ["gpu", "metal"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+glutin = { version = "0.32.3", default-features = false, features = ["egl", "glx", "x11"] }
+raw-window-handle = "0.6.2"
+skia-safe = { workspace = true, features = ["gpu", "gl", "egl", "x11"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+glutin = { version = "0.32.3", default-features = false, features = ["egl", "wgl"] }
+raw-window-handle = "0.6.2"
+skia-safe = { workspace = true, features = ["gpu", "gl"] }
+
 [dev-dependencies]
 criterion.workspace = true
 

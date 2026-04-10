@@ -1,5 +1,7 @@
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 use std::cell::RefCell;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use std::num::NonZeroU32;
 use std::ops::Range;
 
 use skia_safe::{
@@ -10,13 +12,25 @@ use skia_safe::{
     textlayout::{RectHeightStyle, RectWidthStyle},
 };
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use glutin::{
+    config::{Config, ConfigSurfaceTypes, ConfigTemplateBuilder, GlConfig},
+    context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext},
+    display::{Display as GlutinDisplay, DisplayApiPreference, GlDisplay},
+    prelude::NotCurrentGlContext,
+    surface::{PbufferSurface, Surface, SurfaceAttributesBuilder},
+};
 #[cfg(target_os = "macos")]
 use objc2::rc::Retained;
 #[cfg(target_os = "macos")]
 use objc2::runtime::ProtocolObject;
 #[cfg(target_os = "macos")]
 use objc2_metal::{MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice};
-#[cfg(target_os = "macos")]
+#[cfg(target_os = "windows")]
+use raw_window_handle::{RawDisplayHandle, WindowsDisplayHandle};
+#[cfg(target_os = "linux")]
+use raw_window_handle::{RawDisplayHandle, XlibDisplayHandle};
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 use skia_safe::gpu;
 
 use crate::{
@@ -52,6 +66,11 @@ pub enum RenderBackend {
 #[cfg(target_os = "macos")]
 thread_local! {
     static METAL_CONTEXT: RefCell<Option<MetalRendererContext>> = const { RefCell::new(None) };
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+thread_local! {
+    static GL_CONTEXT: RefCell<Option<GlRendererContext>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone, Debug)]
@@ -133,7 +152,47 @@ fn render_layout_gpu(
     })
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn render_layout_gpu(
+    layout: &crate::document::RenderedDocument,
+    measurer: &SkiaTextMeasurer,
+    assets: &dyn ResourceProvider,
+) -> Result<RenderOutput> {
+    GL_CONTEXT.with(|slot| -> Result<RenderOutput> {
+        let mut slot = slot.borrow_mut();
+        let context = match slot.as_mut() {
+            Some(context) => context,
+            None => slot.insert(GlRendererContext::new()?),
+        };
+
+        let info = ImageInfo::new(
+            (layout.width as i32, layout.height as i32),
+            ColorType::RGBA8888,
+            AlphaType::Premul,
+            None,
+        );
+        let mut surface = gpu::surfaces::render_target(
+            &mut context.direct_context,
+            gpu::Budgeted::No,
+            &info,
+            None,
+            gpu::SurfaceOrigin::TopLeft,
+            None,
+            false,
+            false,
+        )
+        .ok_or_else(|| TaffyCanvasError::Render("failed to create gpu surface".to_string()))?;
+        let canvas = surface.canvas();
+        canvas.clear(SkColor::TRANSPARENT);
+
+        draw_node(canvas, &layout.root, measurer, assets)?;
+        context.direct_context.flush_and_submit();
+
+        finish_surface_gpu(&mut surface, layout.clone(), &mut context.direct_context)
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn render_layout_gpu(
     _layout: &crate::document::RenderedDocument,
     _measurer: &SkiaTextMeasurer,
@@ -180,7 +239,7 @@ fn finish_surface(
     })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 fn finish_surface_gpu(
     surface: &mut skia_safe::Surface,
     layout: crate::document::RenderedDocument,
@@ -249,6 +308,144 @@ impl MetalRendererContext {
             direct_context,
         })
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+struct GlRendererContext {
+    _display: GlutinDisplay,
+    _config: Config,
+    _surface: Surface<PbufferSurface>,
+    _context: PossiblyCurrentContext,
+    direct_context: gpu::DirectContext,
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+impl GlRendererContext {
+    fn new() -> Result<Self> {
+        let display = create_gl_display()?;
+        let config = choose_gl_config(&display)?;
+        let context_attributes = ContextAttributesBuilder::new().build(None);
+        let fallback_context_attributes = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(None))
+            .build(None);
+
+        let not_current_context = unsafe {
+            display
+                .create_context(&config, &context_attributes)
+                .or_else(|_| display.create_context(&config, &fallback_context_attributes))
+        }
+        .map_err(|error| {
+            TaffyCanvasError::Render(format!("failed to create GL context: {error}"))
+        })?;
+
+        let pbuffer_attributes = SurfaceAttributesBuilder::<PbufferSurface>::new().build(
+            NonZeroU32::new(1).expect("non-zero width"),
+            NonZeroU32::new(1).expect("non-zero height"),
+        );
+        let surface = unsafe { display.create_pbuffer_surface(&config, &pbuffer_attributes) }
+            .map_err(|error| {
+                TaffyCanvasError::Render(format!("failed to create GL pbuffer surface: {error}"))
+            })?;
+        let context = not_current_context
+            .make_current(&surface)
+            .map_err(|error| {
+                TaffyCanvasError::Render(format!("failed to make GL context current: {error}"))
+            })?;
+
+        let interface = gpu::gl::Interface::new_load_with_cstr(|name| {
+            if name.to_bytes() == b"eglGetCurrentDisplay" {
+                return std::ptr::null();
+            }
+            display.get_proc_address(name)
+        })
+        .ok_or_else(|| TaffyCanvasError::Render("failed to create GL interface".to_string()))?;
+        let direct_context = gpu::direct_contexts::make_gl(interface, None).ok_or_else(|| {
+            TaffyCanvasError::Render("failed to create GL direct context".to_string())
+        })?;
+
+        Ok(Self {
+            _display: display,
+            _config: config,
+            _surface: surface,
+            _context: context,
+            direct_context,
+        })
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+impl Drop for GlRendererContext {
+    fn drop(&mut self) {
+        self.direct_context.release_resources_and_abandon();
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn create_gl_display() -> Result<GlutinDisplay> {
+    if let Ok(devices) = glutin::api::egl::device::Device::query_devices() {
+        for device in devices {
+            if let Ok(display) =
+                unsafe { glutin::api::egl::display::Display::with_device(&device, None) }
+            {
+                return Ok(GlutinDisplay::Egl(display));
+            }
+        }
+    }
+
+    unsafe {
+        GlutinDisplay::new(
+            RawDisplayHandle::Xlib(XlibDisplayHandle::new(None, 0)),
+            DisplayApiPreference::Egl,
+        )
+    }
+    .map_err(|error| TaffyCanvasError::Render(format!("failed to create EGL display: {error}")))
+}
+
+#[cfg(target_os = "windows")]
+fn create_gl_display() -> Result<GlutinDisplay> {
+    unsafe {
+        GlutinDisplay::new(
+            RawDisplayHandle::Windows(WindowsDisplayHandle::new()),
+            DisplayApiPreference::EglThenWgl(None),
+        )
+    }
+    .map_err(|error| {
+        TaffyCanvasError::Render(format!("failed to create Windows GL display: {error}"))
+    })
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+fn choose_gl_config(display: &GlutinDisplay) -> Result<Config> {
+    let config_template = ConfigTemplateBuilder::new()
+        .with_alpha_size(8)
+        .with_surface_type(ConfigSurfaceTypes::PBUFFER)
+        .with_pbuffer_sizes(
+            NonZeroU32::new(1).expect("non-zero width"),
+            NonZeroU32::new(1).expect("non-zero height"),
+        )
+        .build();
+
+    let configs = unsafe { display.find_configs(config_template) }.map_err(|error| {
+        TaffyCanvasError::Render(format!("failed to enumerate GL configs: {error}"))
+    })?;
+
+    configs
+        .reduce(|best, candidate| {
+            let best_score = (
+                best.hardware_accelerated(),
+                std::cmp::Reverse(best.num_samples()),
+            );
+            let candidate_score = (
+                candidate.hardware_accelerated(),
+                std::cmp::Reverse(candidate.num_samples()),
+            );
+            if candidate_score > best_score {
+                candidate
+            } else {
+                best
+            }
+        })
+        .ok_or_else(|| TaffyCanvasError::Render("no compatible GL config available".to_string()))
 }
 
 pub fn render_template(

@@ -763,10 +763,6 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
 
     assert_eq!(output.width, 64);
     assert_eq!(output.height, 64);
-    #[cfg(target_os = "macos")]
-    assert_eq!(output.backend, RenderBackend::Gpu);
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(output.backend, RenderBackend::Cpu);
     assert_eq!(
         pixel(&output.pixels_rgba, 64, 1, 1),
         Color {
@@ -810,7 +806,7 @@ fn render_cpu_backend_reports_cpu() {
     assert_eq!(output.backend, RenderBackend::Cpu);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 #[test]
 fn render_gpu_backend_reports_gpu() {
     let template = Template::compile(
@@ -834,7 +830,7 @@ fn render_gpu_backend_reports_gpu() {
     assert_eq!(output.backend, RenderBackend::Gpu);
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 #[test]
 fn render_gpu_matches_cpu_for_basic_rect_scene() {
     let template = Template::compile(
@@ -871,7 +867,7 @@ fn render_gpu_matches_cpu_for_basic_rect_scene() {
     assert_eq!(cpu.pixels_rgba, gpu.pixels_rgba);
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 #[test]
 fn render_gpu_backend_errors_when_unavailable() {
     let template = Template::compile(

@@ -24,7 +24,7 @@ Implemented today:
 - inline images inside `text` using Skia paragraph placeholders
 - Skia-backed text measurement used for both layout and paint
 - CPU rendering path
-- Metal-backed GPU rendering on macOS, with CPU fallback through `RenderBackendPreference::Auto`
+- GPU rendering on macOS via Metal and on Linux/Windows via headless GL, with CPU fallback through `RenderBackendPreference::Auto`
 - reusable renderer handles for parallel async rendering
 - reusable prepared-template handles for compile-once/resource-once/render-many flows
 - reusable resource handles for image assets and custom font aliases
@@ -48,10 +48,12 @@ Implemented today:
   - flex grow
   - flex shrink
   - grid template rows/columns
+  - named grid template areas
   - `repeat(...)`, `minmax(...)`, and `fit-content(...)` grid track syntax
   - grid auto rows/columns
   - grid auto flow
   - grid row/column placement
+  - `grid-area` and `grid-template` shorthands
   - aspect ratio
   - `size`, `min-size`, and `max-size` shorthands
   - absolute lengths and percentages for width, height, min/max sizes, insets, padding, margin, grid tracks, and flex basis
@@ -65,18 +67,17 @@ Implemented today:
   - border radius
   - `overflow="hidden"` clipping
   - image border-radius clipping
-  - text color, size, family, weight, style, line height, spacing, baseline shift, alignment, inline images
+  - text color, size, family, weight, style, line height, spacing, baseline shift, alignment, inline images, links, and explicit text decoration rendering
   - image fit: `fill`, `contain`, `cover`
 - CI for build and test on macOS, Linux, and Windows
 - integration tests, golden-image fixtures, and benchmarks
 
 Still not implemented:
 
-- GPU backend coverage beyond the current macOS Metal path
 - richer rich text semantics beyond spans and inline image placeholders
-  - links, verified decoration rendering, and more advanced per-fragment effects are still incomplete
+  - more advanced per-fragment effects are still incomplete
 - broader CSS/Taffy coverage beyond the current flex/grid subset
-  - named grid areas, overflow modes beyond `hidden`, and more CSS shorthands are still incomplete
+  - overflow modes beyond `hidden` are still incomplete
 
 ## XML Model
 
@@ -89,11 +90,12 @@ Three node types are supported:
 </view>
 ```
 
-Inline styled spans are also supported inside `text`:
+Inline styled spans and links are also supported inside `text`:
 
 ```xml
 <text color="#ffffff">
   Hello <span color="#ff4f64" font-weight="700">world</span>
+  <a href="https://example.com/docs">docs</a>
 </text>
 ```
 
@@ -111,11 +113,11 @@ Rules:
 - root width and height are required and must be absolute lengths
 - template params use `{{name}}`
 - `text` can use inner text or a `value` attribute
-- `text` can contain nested `<span>` nodes for inline styling and inline `<image>` nodes
+- `text` can contain nested `<span>` and `<a>` nodes for inline styling plus inline `<image>` nodes
 - `image` requires `src`
 - inline `image` nodes require explicit `width` and `height`
-- layout/style attributes include grid tracks and placement plus shorthands such as `size`, `inset`, `border`, `flex`, `place-items`, and `place-self`
-- text styling attributes include `font-style`, `line-height`, `letter-spacing`, `word-spacing`, and `baseline-shift`
+- layout/style attributes include grid tracks, named areas, and placement plus shorthands such as `size`, `inset`, `border`, `flex`, `grid-area`, `grid-template`, `place-items`, and `place-self`
+- text styling attributes include `font-style`, `line-height`, `letter-spacing`, `word-spacing`, `baseline-shift`, and `text-decoration*`
 
 ## Rust Usage
 
@@ -219,7 +221,7 @@ The Node binding currently exposes:
 - `renderWithRendererAndResources()` / `renderWithRendererAndResourcesSync()`
 - `renderPrepared()` / `renderPreparedSync()`
 
-The same XML surface is available from Node, including inline text spans, inline images, grid layouts, and reusable image/font resources.
+The same XML surface is available from Node, including inline text spans/links, inline images, named grid areas, and reusable image/font resources.
 
 All render entrypoints accept an optional backend string:
 
@@ -310,13 +312,12 @@ CI is defined in [`ci.yml`](/Users/dj/Developer/taffy-canvas/.github/workflows/c
 ## Design Notes
 
 - XML parsing is specialized for this project rather than trying to be a generic DOM layer.
-- Rendering supports CPU everywhere and an optional Metal GPU path on macOS.
+- Rendering supports CPU everywhere plus GPU on macOS (Metal) and Linux/Windows (headless GL).
 - Renderer/resource/template handles are designed so JS can compile once, load resources once, and issue many parallel async renders.
 
 ## Near-Term Roadmap
 
 - richer text semantics on top of the current span + inline-image flow
 - broader style coverage
-- GPU backend coverage on Linux and Windows
 - broader asset/resource abstractions on the Node side beyond file-to-memory helpers
 - higher-level templating utilities for HUD data binding beyond prepared templates
