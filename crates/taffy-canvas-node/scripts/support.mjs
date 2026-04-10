@@ -55,13 +55,30 @@ export function removeIfExists(filePath) {
 }
 
 export function runTool(command, args, options = {}) {
-  const executable =
-    process.platform === 'win32' && command === 'npm' ? 'npm.cmd' : command
-  execFileSync(executable, args, {
+  if (process.platform === 'win32' && command === 'npm') {
+    const shell = process.env.comspec || 'cmd.exe'
+    const commandLine = ['npm', ...args].map(quoteWindowsArg).join(' ')
+    execFileSync(shell, ['/d', '/s', '/c', commandLine], {
+      cwd: packageRoot,
+      stdio: 'inherit',
+      ...options
+    })
+    return
+  }
+
+  execFileSync(command, args, {
     cwd: packageRoot,
     stdio: 'inherit',
     ...options
   })
+}
+
+function quoteWindowsArg(value) {
+  if (!/[ \t"]/u.test(value)) {
+    return value
+  }
+
+  return `"${value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1')}"`
 }
 
 export function cargoTargetDir() {
