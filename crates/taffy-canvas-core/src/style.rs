@@ -54,10 +54,16 @@ pub fn style_from_attrs(
             "min-height" => style.min_height = Some(parse_number(value, key)?),
             "max-width" => style.max_width = Some(parse_number(value, key)?),
             "max-height" => style.max_height = Some(parse_number(value, key)?),
+            "aspect-ratio" => style.aspect_ratio = Some(parse_ratio(value, key)?),
             "flex-direction" => style.flex_direction = Some(value.trim().to_string()),
+            "flex-wrap" => style.flex_wrap = Some(value.trim().to_string()),
             "justify-content" => style.justify_content = Some(value.trim().to_string()),
+            "align-content" => style.align_content = Some(value.trim().to_string()),
             "align-items" => style.align_items = Some(value.trim().to_string()),
+            "align-self" => style.align_self = Some(value.trim().to_string()),
+            "flex-basis" => style.flex_basis = Some(parse_number(value, key)?),
             "flex-grow" => style.flex_grow = parse_number(value, key)?,
+            "flex-shrink" => style.flex_shrink = parse_number(value, key)?,
             "gap" => style.gap = Some(parse_number(value, key)?),
             "padding" => style.padding = parse_insets(value, key)?,
             "margin" => style.margin = parse_insets(value, key)?,
@@ -134,6 +140,23 @@ pub fn parse_number(value: &str, attribute: &str) -> Result<f32> {
             attribute: attribute.to_string(),
             message: value.to_string(),
         })
+}
+
+fn parse_ratio(value: &str, attribute: &str) -> Result<f32> {
+    let trimmed = value.trim();
+    if let Some((left, right)) = trimmed.split_once('/') {
+        let numerator = parse_number(left.trim(), attribute)?;
+        let denominator = parse_number(right.trim(), attribute)?;
+        if denominator == 0.0 {
+            return Err(TaffyCanvasError::InvalidAttribute {
+                attribute: attribute.to_string(),
+                message: value.to_string(),
+            });
+        }
+        return Ok(numerator / denominator);
+    }
+
+    parse_number(trimmed, attribute)
 }
 
 fn parse_insets(value: &str, attribute: &str) -> Result<Insets> {

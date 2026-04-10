@@ -1,8 +1,8 @@
 use taffy::{
     NodeId,
     prelude::{
-        AlignContent, AlignItems, AvailableSpace, Dimension, FlexDirection, JustifyContent,
-        LengthPercentage, LengthPercentageAuto, Rect, Size, Style, TaffyTree,
+        AlignContent, AlignItems, AlignSelf, AvailableSpace, Dimension, FlexDirection, FlexWrap,
+        JustifyContent, LengthPercentage, LengthPercentageAuto, Rect, Size, Style, TaffyTree,
     },
 };
 
@@ -186,6 +186,7 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             .map(Dimension::length)
             .unwrap_or_else(Dimension::auto),
     };
+    output.aspect_ratio = style.aspect_ratio;
     output.margin = rect_auto(style.margin);
     output.padding = rect_length(style.padding);
     output.border = rect_length(Insets {
@@ -215,6 +216,13 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             _ => FlexDirection::Column,
         };
     }
+    if let Some(wrap) = &style.flex_wrap {
+        output.flex_wrap = match wrap.as_str() {
+            "wrap" => FlexWrap::Wrap,
+            "wrap-reverse" => FlexWrap::WrapReverse,
+            _ => FlexWrap::NoWrap,
+        };
+    }
     if let Some(justify) = &style.justify_content {
         output.justify_content = Some(match justify.as_str() {
             "center" => JustifyContent::Center,
@@ -226,6 +234,18 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             _ => JustifyContent::Start,
         });
     }
+    if let Some(align) = &style.align_content {
+        output.align_content = Some(match align.as_str() {
+            "center" => AlignContent::Center,
+            "end" => AlignContent::End,
+            "flex-end" => AlignContent::FlexEnd,
+            "stretch" => AlignContent::Stretch,
+            "space-between" => AlignContent::SpaceBetween,
+            "space-around" => AlignContent::SpaceAround,
+            "space-evenly" => AlignContent::SpaceEvenly,
+            _ => AlignContent::Start,
+        });
+    }
     if let Some(align) = &style.align_items {
         output.align_items = Some(match align.as_str() {
             "center" => AlignItems::Center,
@@ -235,15 +255,25 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             "stretch" => AlignItems::Stretch,
             _ => AlignItems::Start,
         });
-        output.align_content = Some(match align.as_str() {
-            "center" => AlignContent::Center,
-            "end" => AlignContent::End,
-            "flex-end" => AlignContent::FlexEnd,
-            "stretch" => AlignContent::Stretch,
-            _ => AlignContent::Start,
-        });
     }
+    if let Some(align) = &style.align_self {
+        output.align_self = match align.as_str() {
+            "auto" => None,
+            "center" => Some(AlignSelf::Center),
+            "end" => Some(AlignSelf::End),
+            "flex-end" => Some(AlignSelf::FlexEnd),
+            "flex-start" => Some(AlignSelf::FlexStart),
+            "baseline" => Some(AlignSelf::Baseline),
+            "stretch" => Some(AlignSelf::Stretch),
+            _ => Some(AlignSelf::Start),
+        };
+    }
+    output.flex_basis = style
+        .flex_basis
+        .map(Dimension::length)
+        .unwrap_or_else(Dimension::auto);
     output.flex_grow = style.flex_grow;
+    output.flex_shrink = style.flex_shrink;
     output
 }
 
