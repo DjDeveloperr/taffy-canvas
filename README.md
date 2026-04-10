@@ -23,6 +23,7 @@ Implemented today:
 - inline rich text spans inside `text` via nested `<span>` nodes
 - Skia-backed text measurement used for both layout and paint
 - CPU rendering path
+- Metal-backed GPU rendering on macOS, with CPU fallback through `RenderBackendPreference::Auto`
 - reusable renderer handles for parallel async rendering
 - reusable prepared-template handles for compile-once/resource-once/render-many flows
 - reusable resource handles for image assets and custom font aliases
@@ -58,7 +59,7 @@ Implemented today:
 
 Still not implemented:
 
-- GPU-backed rendering path
+- GPU backend coverage beyond the current macOS Metal path
 - inline images and richer rich text flow beyond styled spans
 - broader CSS/Taffy coverage beyond the current subset
   - additional layout/display modes and more CSS shorthands are still incomplete
@@ -99,7 +100,8 @@ Rules:
 use std::collections::BTreeMap;
 
 use taffy_canvas_core::{
-    MemoryAssetProvider, RenderOptions, Renderer, Template, TemplateParams,
+    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Renderer, Template,
+    TemplateParams,
 };
 
 let template = Template::compile(
@@ -115,7 +117,15 @@ params.insert("name".to_string(), "Canvas".to_string());
 
 let renderer = Renderer::default();
 let resources = MemoryAssetProvider::new(BTreeMap::new());
-let output = renderer.render(&template, &params, &resources, RenderOptions::default())?;
+let output = renderer.render(
+    &template,
+    &params,
+    &resources,
+    RenderOptions {
+        backend: RenderBackendPreference::Auto,
+        ..RenderOptions::default()
+    },
+)?;
 
 std::fs::write("out.png", output.png_bytes)?;
 # Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
@@ -135,7 +145,10 @@ resources.register_font("HUD Display", std::fs::read("display.ttf")?);
 Using filesystem-backed resources plus a prepared template:
 
 ```rust
-use taffy_canvas_core::{FileSystemResourceProvider, RenderOptions, Renderer, Template, TemplateParams};
+use taffy_canvas_core::{
+    FileSystemResourceProvider, RenderBackendPreference, RenderOptions, Renderer, Template,
+    TemplateParams,
+};
 
 let template = Template::compile(
     r##"
@@ -153,7 +166,13 @@ let prepared = Renderer::default().prepare(template, resources);
 
 let mut params = TemplateParams::new();
 params.insert("name".to_string(), "Canvas".to_string());
-let output = prepared.render(&params, RenderOptions::default())?;
+let output = prepared.render(
+    &params,
+    RenderOptions {
+        backend: RenderBackendPreference::Auto,
+        ..RenderOptions::default()
+    },
+)?;
 # Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
 ```
 
@@ -177,6 +196,12 @@ The Node binding currently exposes:
 - `renderWithRendererAndResources()` / `renderWithRendererAndResourcesSync()`
 - `renderPrepared()` / `renderPreparedSync()`
 
+All render entrypoints accept an optional backend string:
+
+- `"auto"`: prefer GPU where available and fall back to CPU
+- `"cpu"`: force the raster path
+- `"gpu"`: require the GPU path and error if unavailable
+
 Typical fast path:
 
 ```js
@@ -196,7 +221,7 @@ const prepared = prepareTemplateWithRenderer(renderer, resources, template);
 
 const png = await renderPrepared(prepared, {
   name: "Canvas",
-});
+}, "auto");
 ```
 
 The npm wrapper is packaged as a main `taffy-canvas` package plus platform-specific native packages selected through `optionalDependencies`. Current prebuilt targets are:
@@ -224,7 +249,7 @@ To use npm trusted publishing, configure the same workflow filename on npm for:
 
 ## Performance
 
-Current local benchmark on this machine:
+Current local CPU benchmark on this machine:
 
 - `template_compile`: about `3.6 µs`
 - `prepared_render`: about `0.95 ms`
@@ -236,6 +261,8 @@ These numbers come from:
 ```bash
 cargo bench -p taffy-canvas-core --bench render -- --sample-size 10
 ```
+
+On macOS, the same harness also records `prepared_render_gpu` when the Metal backend is available.
 
 ## Testing
 
@@ -258,13 +285,13 @@ CI is defined in [`ci.yml`](/Users/dj/Developer/taffy-canvas/.github/workflows/c
 ## Design Notes
 
 - XML parsing is specialized for this project rather than trying to be a generic DOM layer.
-- Rendering currently targets CPU raster output so it works on macOS laptops and Linux VPS environments.
+- Rendering supports CPU everywhere and an optional Metal GPU path on macOS.
 - Renderer/resource/template handles are designed so JS can compile once, load resources once, and issue many parallel async renders.
 
 ## Near-Term Roadmap
 
 - richer text flow and inline content
 - broader style coverage
-- GPU path where available without requiring it
+- GPU backend coverage on Linux and Windows
 - broader asset/resource abstractions on the Node side beyond file-to-memory helpers
 - higher-level templating utilities for HUD data binding beyond prepared templates

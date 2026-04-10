@@ -22,6 +22,13 @@ The Node binding supports:
 - file-backed resource loading into reusable resource handles via `addResourceAssetFromFile()` and `addResourceFontFromFile()`
 - prepared template handles via `prepareTemplate()` and `prepareTemplateWithRenderer()`
 - repeated async renders through `renderPrepared()`
+- optional backend selection on every render call: `"auto"`, `"cpu"`, or `"gpu"`
+
+Backend behavior:
+
+- `"auto"` prefers the Metal GPU path on macOS and falls back to CPU everywhere else
+- `"cpu"` forces the CPU raster path
+- `"gpu"` requires GPU rendering and currently only succeeds on macOS
 
 Packing the main package and the current platform binary package:
 
