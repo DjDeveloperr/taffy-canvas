@@ -83,6 +83,12 @@ fn draw_node(
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
     draw_box(canvas, node);
+    let should_clip = node.style.overflow_hidden
+        || matches!(node.kind, LayoutNodeKind::Image { .. }) && node.style.border_radius > 0.0;
+    if should_clip {
+        canvas.save();
+        clip_node(canvas, node);
+    }
 
     match &node.kind {
         LayoutNodeKind::View => {}
@@ -92,6 +98,10 @@ fn draw_node(
 
     for child in &node.children {
         draw_node(canvas, child, measurer, assets)?;
+    }
+
+    if should_clip {
+        canvas.restore();
     }
     Ok(())
 }
@@ -186,4 +196,19 @@ fn draw_image(
 
 fn to_skia_color(color: Color) -> SkColor {
     SkColor::from_argb(color.a, color.r, color.g, color.b)
+}
+
+fn clip_node(canvas: &skia_safe::Canvas, node: &LayoutNode) {
+    let rect = Rect::from_xywh(
+        node.layout.x,
+        node.layout.y,
+        node.layout.width,
+        node.layout.height,
+    );
+    if node.style.border_radius > 0.0 {
+        let rrect = RRect::new_rect_xy(rect, node.style.border_radius, node.style.border_radius);
+        canvas.clip_rrect(rrect, None, Some(true));
+    } else {
+        canvas.clip_rect(rect, None, Some(true));
+    }
 }

@@ -329,6 +329,88 @@ fn render_outputs_expected_pixels_for_nested_fixed_child() {
 }
 
 #[test]
+fn render_clips_children_when_overflow_is_hidden() {
+    let template = Template::compile(
+        r##"
+        <view width="50" height="50" background="#101820">
+          <view width="20" height="20" position="absolute" left="4" top="4" overflow="hidden" radius="6" background="#203040">
+            <view width="24" height="24" position="absolute" left="12" top="12" background="#ff0000" />
+          </view>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions::default(),
+    )
+    .expect("render succeeds");
+
+    assert_eq!(
+        pixel(&output.pixels_rgba, 50, 28, 28),
+        Color {
+            r: 16,
+            g: 24,
+            b: 32,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 50, 20, 20),
+        Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
+}
+
+#[test]
+fn render_clips_images_to_border_radius() {
+    let template = Template::compile(
+        r##"
+        <view width="20" height="20" background="#102030">
+          <image src="swatch" width="16" height="16" left="2" top="2" position="absolute" fit="fill" radius="8" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut assets = BTreeMap::new();
+    assets.insert("swatch".to_string(), sample_solid_png(16, 16, 255, 0, 0));
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &MemoryAssetProvider::new(assets),
+        RenderOptions::default(),
+    )
+    .expect("render succeeds");
+
+    assert_eq!(
+        pixel(&output.pixels_rgba, 20, 2, 2),
+        Color {
+            r: 16,
+            g: 32,
+            b: 48,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 20, 10, 10),
+        Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
+}
+
+#[test]
 fn renderer_reuses_template_for_parallel_renders() {
     let template = Arc::new(
         Template::compile(
@@ -483,6 +565,26 @@ fn sample_image_png() -> Vec<u8> {
     canvas.draw_rect(Rect::from_xywh(0.0, 0.0, 1.0, 1.0), &paint);
     paint.set_color(SkColor::from_rgb(0, 0, 255));
     canvas.draw_rect(Rect::from_xywh(1.0, 0.0, 1.0, 1.0), &paint);
+
+    surface
+        .image_snapshot()
+        .encode(None, EncodedImageFormat::PNG, None)
+        .expect("png")
+        .as_bytes()
+        .to_vec()
+}
+
+fn sample_solid_png(width: i32, height: i32, r: u8, g: u8, b: u8) -> Vec<u8> {
+    let mut surface = surfaces::raster_n32_premul((width, height)).expect("surface");
+    let canvas = surface.canvas();
+    canvas.clear(SkColor::TRANSPARENT);
+
+    let mut paint = Paint::default();
+    paint.set_color(SkColor::from_rgb(r, g, b));
+    canvas.draw_rect(
+        Rect::from_xywh(0.0, 0.0, width as f32, height as f32),
+        &paint,
+    );
 
     surface
         .image_snapshot()

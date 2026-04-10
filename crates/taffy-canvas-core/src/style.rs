@@ -92,6 +92,18 @@ pub fn style_from_attrs(
                     }
                 }
             }
+            "overflow" => {
+                style.overflow_hidden = match value.trim() {
+                    "visible" => false,
+                    "hidden" => true,
+                    other => {
+                        return Err(TaffyCanvasError::InvalidAttribute {
+                            attribute: key.clone(),
+                            message: other.to_string(),
+                        });
+                    }
+                }
+            }
             "background" | "background-color" => style.background = Some(parse_color(value)?),
             "border-color" => style.border_color = Some(parse_color(value)?),
             "border-width" => style.border_width = parse_number(value, key)?,
