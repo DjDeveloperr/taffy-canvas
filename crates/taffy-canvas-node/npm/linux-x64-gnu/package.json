@@ -1,0 +1,26 @@
+{
+  "name": "taffy-canvas-linux-x64-gnu",
+  "version": "0.1.0",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "main": "taffy-canvas.linux-x64-gnu.node",
+  "files": [
+    "taffy-canvas.linux-x64-gnu.node"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "taffy-canvas": "0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "taffy-canvas": {
+      "optional": true
+    }
+  }
+}

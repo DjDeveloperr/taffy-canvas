@@ -1,0 +1,48 @@
+{
+  "name": "taffy-canvas",
+  "version": "0.1.0",
+  "description": "Node.js bindings for Taffy Canvas, a Skia + Taffy server-side image renderer.",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DjDeveloperr/taffy-canvas.git",
+    "directory": "crates/taffy-canvas-node"
+  },
+  "keywords": [
+    "napi-rs",
+    "node-addon",
+    "rust",
+    "skia",
+    "taffy",
+    "og-image",
+    "discord"
+  ],
+  "files": [
+    "README.md",
+    "index.js",
+    "index.d.ts"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node ./scripts/build-addon.mjs --release",
+    "build:debug": "node ./scripts/build-addon.mjs",
+    "prepare:platform": "node ./scripts/prepare-platform-package.mjs",
+    "sync:versions": "node ./scripts/sync-package-versions.mjs",
+    "pack:current": "node ./scripts/pack-current-platform.mjs",
+    "test:smoke": "npm run build && node ./scripts/smoke-test.mjs"
+  },
+  "optionalDependencies": {
+    "taffy-canvas-darwin-arm64": "0.1.0",
+    "taffy-canvas-darwin-x64": "0.1.0",
+    "taffy-canvas-linux-x64-gnu": "0.1.0",
+    "taffy-canvas-win32-x64-msvc": "0.1.0"
+  }
+}

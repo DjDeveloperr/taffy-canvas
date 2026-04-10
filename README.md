@@ -163,6 +163,19 @@ const png = await renderWithRendererAndResources(renderer, resources, template, 
 });
 ```
 
+The npm wrapper is packaged as a main `taffy-canvas` package plus platform-specific native packages selected through `optionalDependencies`. Current prebuilt targets are:
+
+- `darwin-arm64`
+- `darwin-x64`
+- `linux-x64-gnu`
+- `win32-x64-msvc`
+
+Node package maintenance commands live in [`package.json`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-node/package.json):
+
+- `npm run build`
+- `npm run test:smoke`
+- `npm run pack:current`
+
 ## Performance
 
 Current local benchmark on this machine:

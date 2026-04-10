@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  rust:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -20,6 +20,7 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
+          - windows-latest
 
     steps:
       - name: Check out repository
@@ -49,3 +50,50 @@ jobs:
 
       - name: Run workspace tests
         run: cargo test --workspace
+
+  node-package:
+    name: Node Package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system packages
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: taffy-canvas-v1
+          cache-on-failure: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Sync npm package versions
+        working-directory: crates/taffy-canvas-node
+        run: npm run sync:versions
+
+      - name: Run Node smoke test
+        working-directory: crates/taffy-canvas-node
+        run: npm run test:smoke
+
+      - name: Pack main and platform npm packages
+        working-directory: crates/taffy-canvas-node
+        run: npm run pack:current
