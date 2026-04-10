@@ -7,6 +7,7 @@ use taffy::{
         RepetitionCount, Size, Style, TaffyTree, TrackSizingFunction, auto, fit_content, fr,
         length, line, min_content, minmax, percent, repeat, span,
     },
+    style::GridTemplateArea,
 };
 
 use crate::{
@@ -291,6 +292,9 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     if let Some(rows) = &style.grid_template_rows {
         output.grid_template_rows = parse_grid_template_tracks(rows);
     }
+    if let Some(areas) = &style.grid_template_areas {
+        output.grid_template_areas = parse_grid_template_areas(areas);
+    }
     if let Some(columns) = &style.grid_auto_columns {
         output.grid_auto_columns = split_track_list(columns)
             .into_iter()
@@ -305,6 +309,9 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     }
     if let Some(flow) = &style.grid_auto_flow {
         output.grid_auto_flow = parse_grid_auto_flow(flow);
+    }
+    if let Some(area) = &style.grid_area {
+        apply_grid_area_shorthand(&mut output, area);
     }
     if let Some(column) = &style.grid_column {
         output.grid_column = parse_grid_line(column);
@@ -441,6 +448,87 @@ fn parse_grid_template_tracks<S: taffy::style::CheapCloneStr>(
         .into_iter()
         .map(|part| parse_grid_template_component(&part))
         .collect()
+}
+
+fn parse_grid_template_areas<S>(value: &str) -> Vec<GridTemplateArea<S>>
+where
+    S: taffy::style::CheapCloneStr + From<String>,
+{
+    let rows = parse_grid_template_area_rows(value);
+    if rows.is_empty() {
+        return Vec::new();
+    }
+
+    let column_count = rows[0].len();
+    if column_count == 0 || rows.iter().any(|row| row.len() != column_count) {
+        return Vec::new();
+    }
+
+    let mut bounds = std::collections::BTreeMap::<String, (usize, usize, usize, usize)>::new();
+    for (row_index, row) in rows.iter().enumerate() {
+        for (column_index, name) in row.iter().enumerate() {
+            if name == "." {
+                continue;
+            }
+            bounds
+                .entry(name.clone())
+                .and_modify(|entry| {
+                    entry.0 = entry.0.min(row_index);
+                    entry.1 = entry.1.max(row_index);
+                    entry.2 = entry.2.min(column_index);
+                    entry.3 = entry.3.max(column_index);
+                })
+                .or_insert((row_index, row_index, column_index, column_index));
+        }
+    }
+
+    let mut areas = Vec::with_capacity(bounds.len());
+    for (name, (row_start, row_end, column_start, column_end)) in bounds {
+        let is_rectangular = (row_start..=row_end)
+            .all(|row| (column_start..=column_end).all(|column| rows[row][column] == name));
+        if !is_rectangular {
+            return Vec::new();
+        }
+        areas.push(GridTemplateArea {
+            name: name.into(),
+            row_start: row_start as u16 + 1,
+            row_end: row_end as u16 + 2,
+            column_start: column_start as u16 + 1,
+            column_end: column_end as u16 + 2,
+        });
+    }
+
+    areas
+}
+
+fn parse_grid_template_area_rows(value: &str) -> Vec<Vec<String>> {
+    let mut rows = Vec::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '"' && ch != '\'' {
+            continue;
+        }
+
+        let quote = ch;
+        let mut row = String::new();
+        while let Some(next) = chars.next() {
+            if next == quote {
+                break;
+            }
+            row.push(next);
+        }
+
+        let parsed = row
+            .split_whitespace()
+            .map(str::trim)
+            .filter(|cell| !cell.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if !parsed.is_empty() {
+            rows.push(parsed);
+        }
+    }
+    rows
 }
 
 fn parse_grid_template_component<S: taffy::style::CheapCloneStr>(
@@ -612,19 +700,85 @@ fn parse_grid_line(value: &str) -> taffy::Line<GridPlacement> {
     }
 }
 
-fn parse_grid_placement(value: &str) -> GridPlacement {
+fn parse_grid_placement<S>(value: &str) -> GridPlacement<S>
+where
+    S: taffy::style::CheapCloneStr + From<String>,
+{
     let trimmed = value.trim();
     if trimmed.is_empty() || trimmed == "auto" {
         return GridPlacement::Auto;
     }
-    if let Some(span_value) = trimmed.strip_prefix("span ")
-        && let Ok(number) = span_value.trim().parse::<u16>()
-    {
-        return span(number);
+
+    let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        ["span", value] => {
+            return value
+                .parse::<u16>()
+                .map(span)
+                .unwrap_or_else(|_| GridPlacement::NamedSpan((*value).to_string().into(), 0));
+        }
+        ["span", first, second] => {
+            if let Ok(number) = first.parse::<u16>() {
+                return GridPlacement::NamedSpan((*second).to_string().into(), number);
+            }
+            if let Ok(number) = second.parse::<u16>() {
+                return GridPlacement::NamedSpan((*first).to_string().into(), number);
+            }
+        }
+        [single] => {
+            if let Ok(index) = single.parse::<i16>() {
+                return line(index);
+            }
+            return GridPlacement::NamedLine((*single).to_string().into(), 0);
+        }
+        [first, second] => {
+            if let Ok(index) = first.parse::<i16>() {
+                return GridPlacement::NamedLine((*second).to_string().into(), index);
+            }
+            if let Ok(index) = second.parse::<i16>() {
+                return GridPlacement::NamedLine((*first).to_string().into(), index);
+            }
+        }
+        _ => {}
     }
-    match trimmed.parse::<i16>() {
-        Ok(index) => line(index),
-        Err(_) => GridPlacement::Auto,
+    GridPlacement::Auto
+}
+
+fn apply_grid_area_shorthand(style: &mut Style, value: &str) {
+    let parts = value.split('/').map(str::trim).collect::<Vec<_>>();
+    if let [single] = parts.as_slice()
+        && !single.is_empty()
+        && !single.chars().any(char::is_whitespace)
+        && single.parse::<i16>().is_err()
+        && *single != "auto"
+    {
+        style.grid_row.start = GridPlacement::NamedLine(format!("{single}-start"), 0);
+        style.grid_row.end = GridPlacement::NamedLine(format!("{single}-end"), 0);
+        style.grid_column.start = GridPlacement::NamedLine(format!("{single}-start"), 0);
+        style.grid_column.end = GridPlacement::NamedLine(format!("{single}-end"), 0);
+        return;
+    }
+
+    match parts.as_slice() {
+        [row_start] => {
+            style.grid_row.start = parse_grid_placement(row_start);
+        }
+        [row_start, column_start] => {
+            style.grid_row.start = parse_grid_placement(row_start);
+            style.grid_column.start = parse_grid_placement(column_start);
+        }
+        [row_start, column_start, row_end] => {
+            style.grid_row.start = parse_grid_placement(row_start);
+            style.grid_column.start = parse_grid_placement(column_start);
+            style.grid_row.end = parse_grid_placement(row_end);
+        }
+        [row_start, column_start, row_end, column_end] => {
+            style.grid_row.start = parse_grid_placement(row_start);
+            style.grid_column.start = parse_grid_placement(column_start);
+            style.grid_row.end = parse_grid_placement(row_end);
+            style.grid_column.end = parse_grid_placement(column_end);
+        }
+        _ => {}
     }
 }
 

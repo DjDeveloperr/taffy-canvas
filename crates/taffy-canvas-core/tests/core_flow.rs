@@ -75,6 +75,9 @@ fn template_flattens_inline_spans_into_runs() {
             assert_eq!(run0.text, "Hello ");
             assert_eq!(run1.text, "Red");
             assert_eq!(run2.text, " Canvas");
+            assert_eq!(run0.href, None);
+            assert_eq!(run1.href, None);
+            assert_eq!(run2.href, None);
             assert_eq!(run0.style.color, Color::WHITE);
             assert_eq!(
                 run1.style.color,
@@ -158,6 +161,47 @@ fn template_merges_richer_inline_span_text_styles() {
                     b: 0,
                     a: 255
                 })
+            );
+            assert_eq!(span.href, None);
+        }
+        other => panic!("expected text node, got {other:?}"),
+    }
+}
+
+#[test]
+fn template_supports_inline_links_with_default_visual_style() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="120">
+          <text color="#ffffff">Docs: <a href="https://example.com/docs">Read</a></text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    match &document.root.children[0].kind {
+        taffy_canvas_core::NodeKind::Text { value, fragments } => {
+            assert_eq!(value, "Docs: Read");
+            let InlineFragment::Text(link_run) = &fragments[1] else {
+                panic!("expected link text run");
+            };
+            assert_eq!(link_run.href.as_deref(), Some("https://example.com/docs"));
+            assert_eq!(
+                link_run.style.color,
+                Color {
+                    r: 0,
+                    g: 102,
+                    b: 204,
+                    a: 255
+                }
+            );
+            assert!(link_run.style.text_decoration.underline);
+            assert_eq!(
+                link_run.style.text_decoration.color,
+                Some(link_run.style.color)
             );
         }
         other => panic!("expected text node, got {other:?}"),
@@ -527,6 +571,42 @@ fn layout_supports_repeat_minmax_and_fit_content_grid_tracks() {
     assert_eq!(laid_out.root.children[1].layout.width, 50.0);
     assert_eq!(laid_out.root.children[2].layout.x, 100.0);
     assert_eq!(laid_out.root.children[2].layout.width, 20.0);
+}
+
+#[test]
+fn layout_supports_named_grid_areas_and_grid_area_shorthand() {
+    let template = Template::compile(
+        r##"
+        <view width="160" height="100" display="grid" grid-template-columns="60 1fr" grid-template-rows="30 1fr" grid-template-areas='"hero hero" "sidebar body"'>
+          <view grid-area="hero" background="#ff0000" />
+          <view grid-area="sidebar" background="#00ff00" />
+          <view grid-area="body" background="#0000ff" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    let hero = &laid_out.root.children[0];
+    let sidebar = &laid_out.root.children[1];
+    let body = &laid_out.root.children[2];
+    assert_eq!(hero.layout.x, 0.0);
+    assert_eq!(hero.layout.y, 0.0);
+    assert_eq!(hero.layout.width, 160.0);
+    assert_eq!(hero.layout.height, 30.0);
+    assert_eq!(sidebar.layout.x, 0.0);
+    assert_eq!(sidebar.layout.y, 30.0);
+    assert_eq!(sidebar.layout.width, 60.0);
+    assert_eq!(sidebar.layout.height, 70.0);
+    assert_eq!(body.layout.x, 60.0);
+    assert_eq!(body.layout.y, 30.0);
+    assert_eq!(body.layout.width, 100.0);
+    assert_eq!(body.layout.height, 70.0);
 }
 
 #[test]
@@ -1114,6 +1194,7 @@ fn template_parses_text_decoration_attributes_on_root_text() {
         panic!("expected text fragment");
     };
 
+    assert_eq!(run.href, None);
     assert!(run.style.text_decoration.underline);
     assert!(run.style.text_decoration.overline);
     assert_eq!(
@@ -1130,6 +1211,78 @@ fn template_parses_text_decoration_attributes_on_root_text() {
             a: 255
         })
     );
+}
+
+#[test]
+fn render_draws_link_defaults_with_blue_underline() {
+    let template = Template::compile(
+        r##"
+        <view width="160" height="48" background="#ffffff">
+          <text color="#000000" font-size="24">Go <a href="https://example.com">HERE</a></text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    let blue_pixels = count_pixels(&output.pixels_rgba, |pixel| {
+        pixel.r < 40 && pixel.g > 70 && pixel.b > 140 && pixel.a > 0
+    });
+    assert!(blue_pixels > 10);
+}
+
+#[test]
+fn render_draws_text_decoration_color_and_styles() {
+    let solid = render_template(
+        &Template::compile(
+            r##"
+            <view width="180" height="56" background="#ffffff">
+              <text color="#000000" font-size="24" text-decoration="underline" text-decoration-color="#00aa00">HI</text>
+            </view>
+            "##,
+        )
+        .expect("solid template"),
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("solid render");
+    let dotted = render_template(
+        &Template::compile(
+            r##"
+            <view width="180" height="56" background="#ffffff">
+              <text color="#000000" font-size="24" text-decoration="underline" text-decoration-color="#00aa00" text-decoration-style="dotted">HI</text>
+            </view>
+            "##,
+        )
+        .expect("dotted template"),
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("dotted render");
+
+    let green_pixels = count_pixels(&solid.pixels_rgba, |pixel| {
+        pixel.r < 40 && pixel.g > 120 && pixel.b < 40 && pixel.a > 0
+    });
+    assert!(green_pixels > 4);
+    assert_ne!(solid.pixels_rgba, dotted.pixels_rgba);
 }
 
 #[test]
@@ -1391,6 +1544,20 @@ fn pixel(bytes: &[u8], width: usize, x: usize, y: usize) -> Color {
         b: bytes[index + 2],
         a: bytes[index + 3],
     }
+}
+
+fn count_pixels(bytes: &[u8], predicate: impl Fn(Color) -> bool) -> usize {
+    bytes
+        .chunks_exact(4)
+        .filter(|chunk| {
+            predicate(Color {
+                r: chunk[0],
+                g: chunk[1],
+                b: chunk[2],
+                a: chunk[3],
+            })
+        })
+        .count()
 }
 
 fn sample_image_png() -> Vec<u8> {

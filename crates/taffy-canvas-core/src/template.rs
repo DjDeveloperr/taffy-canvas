@@ -7,7 +7,9 @@ use quick_xml::{
 
 use crate::{
     Result,
-    document::{Document, InlineFragment, InlineImageRun, Node, NodeKind, StyleSpec, TextRun},
+    document::{
+        Color, Document, InlineFragment, InlineImageRun, Node, NodeKind, StyleSpec, TextRun,
+    },
     error::TaffyCanvasError,
     style::style_from_attrs,
 };
@@ -31,6 +33,7 @@ struct TemplateNode {
 enum TemplateInline {
     Text(CompiledString),
     Span(TemplateNode),
+    Link(TemplateNode),
     Image(TemplateNode),
 }
 
@@ -40,7 +43,15 @@ enum TemplateTag {
     Text,
     Image,
     Span,
+    Link,
 }
+
+const DEFAULT_LINK_COLOR: Color = Color {
+    r: 0,
+    g: 102,
+    b: 204,
+    a: 255,
+};
 
 #[derive(Clone, Debug)]
 struct CompiledString {
@@ -181,10 +192,16 @@ impl TemplateNode {
                         vec![InlineFragment::Text(TextRun {
                             text: value.clone(),
                             style: style.clone(),
+                            href: evaluated_attrs.get("href").cloned(),
                         })],
                     )
                 } else {
-                    flatten_inline_fragments(&self.inline, params, &style)?
+                    flatten_inline_fragments(
+                        &self.inline,
+                        params,
+                        &style,
+                        evaluated_attrs.get("href").map(String::as_str),
+                    )?
                 };
 
                 NodeKind::Text { value, fragments }
@@ -208,6 +225,12 @@ impl TemplateNode {
                 return Err(TaffyCanvasError::InvalidNode {
                     node: "span".to_string(),
                     message: "span nodes are only valid inside text".to_string(),
+                });
+            }
+            TemplateTag::Link => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: "a".to_string(),
+                    message: "link nodes are only valid inside text".to_string(),
                 });
             }
         };
@@ -288,6 +311,7 @@ fn flatten_inline_fragments(
     inline: &[TemplateInline],
     params: &TemplateParams,
     base_style: &StyleSpec,
+    current_href: Option<&str>,
 ) -> Result<(String, Vec<InlineFragment>)> {
     let mut value = String::new();
     let mut fragments = Vec::new();
@@ -301,13 +325,21 @@ fn flatten_inline_fragments(
                     fragments.push(InlineFragment::Text(TextRun {
                         text: rendered,
                         style: base_style.clone(),
+                        href: current_href.map(str::to_string),
                     }));
                 }
             }
             TemplateInline::Span(span) => {
-                let (span_value, span_fragments) = span.instantiate_span(params, base_style)?;
+                let (span_value, span_fragments) =
+                    span.instantiate_inline_text_node(params, base_style, current_href)?;
                 value.push_str(&span_value);
                 fragments.extend(span_fragments);
+            }
+            TemplateInline::Link(link) => {
+                let (link_value, link_fragments) =
+                    link.instantiate_inline_text_node(params, base_style, current_href)?;
+                value.push_str(&link_value);
+                fragments.extend(link_fragments);
             }
             TemplateInline::Image(image) => {
                 let inline_image = image.instantiate_inline_image(params)?;
@@ -321,15 +353,16 @@ fn flatten_inline_fragments(
 }
 
 impl TemplateNode {
-    fn instantiate_span(
+    fn instantiate_inline_text_node(
         &self,
         params: &TemplateParams,
         inherited_style: &StyleSpec,
+        inherited_href: Option<&str>,
     ) -> Result<(String, Vec<InlineFragment>)> {
-        if self.tag != TemplateTag::Span {
+        if !matches!(self.tag, TemplateTag::Span | TemplateTag::Link) {
             return Err(TaffyCanvasError::InvalidNode {
-                node: "span".to_string(),
-                message: "only span nodes can be instantiated inline".to_string(),
+                node: tag_name(self.tag).to_string(),
+                message: "only span and a nodes can be instantiated inline".to_string(),
             });
         }
 
@@ -354,7 +387,16 @@ impl TemplateNode {
         }
 
         let (parsed_style, _) = style_from_attrs(&evaluated_attrs)?;
-        let merged_style = merge_inline_style(inherited_style, &parsed_style, &evaluated_attrs);
+        let merged_style =
+            merge_inline_style(self.tag, inherited_style, &parsed_style, &evaluated_attrs);
+        let current_href = if self.tag == TemplateTag::Link {
+            evaluated_attrs
+                .get("href")
+                .cloned()
+                .or_else(|| inherited_href.map(str::to_string))
+        } else {
+            inherited_href.map(str::to_string)
+        };
 
         if let Some(value) = evaluated_attrs.get("value") {
             return Ok((
@@ -362,11 +404,12 @@ impl TemplateNode {
                 vec![InlineFragment::Text(TextRun {
                     text: value.clone(),
                     style: merged_style,
+                    href: current_href,
                 })],
             ));
         }
 
-        flatten_inline_fragments(&self.inline, params, &merged_style)
+        flatten_inline_fragments(&self.inline, params, &merged_style, current_href.as_deref())
     }
 
     fn instantiate_inline_image(&self, params: &TemplateParams) -> Result<InlineImageRun> {
@@ -409,13 +452,17 @@ impl TemplateNode {
 }
 
 fn merge_inline_style(
+    tag: TemplateTag,
     inherited: &StyleSpec,
     parsed: &StyleSpec,
     attrs: &BTreeMap<String, String>,
 ) -> StyleSpec {
     let mut merged = inherited.clone();
+    let is_link = tag == TemplateTag::Link || attrs.contains_key("href");
     if attrs.contains_key("color") {
         merged.color = parsed.color;
+    } else if is_link {
+        merged.color = DEFAULT_LINK_COLOR;
     }
     if attrs.contains_key("font-size") {
         merged.font.size = parsed.font.size;
@@ -445,9 +492,13 @@ fn merge_inline_style(
         merged.text_decoration.underline = parsed.text_decoration.underline;
         merged.text_decoration.overline = parsed.text_decoration.overline;
         merged.text_decoration.line_through = parsed.text_decoration.line_through;
+    } else if is_link {
+        merged.text_decoration.underline = true;
     }
     if attrs.contains_key("text-decoration-color") {
         merged.text_decoration.color = parsed.text_decoration.color;
+    } else if is_link {
+        merged.text_decoration.color = Some(merged.color);
     }
     if attrs.contains_key("text-decoration-style") {
         merged.text_decoration.style = parsed.text_decoration.style;
@@ -461,6 +512,12 @@ fn merge_inline_style(
 fn push_inline_text(node: &mut TemplateNode, decoded: &str) {
     match node.tag {
         TemplateTag::Text | TemplateTag::Span => {
+            if !decoded.trim().is_empty() {
+                node.inline
+                    .push(TemplateInline::Text(CompiledString::compile(decoded)));
+            }
+        }
+        TemplateTag::Link => {
             if !decoded.trim().is_empty() {
                 node.inline
                     .push(TemplateInline::Text(CompiledString::compile(decoded)));
@@ -480,13 +537,23 @@ fn attach_node(
             (TemplateTag::Text | TemplateTag::Span, TemplateTag::Span) => {
                 parent.inline.push(TemplateInline::Span(node));
             }
+            (TemplateTag::Text | TemplateTag::Span | TemplateTag::Link, TemplateTag::Link) => {
+                parent.inline.push(TemplateInline::Link(node));
+            }
             (TemplateTag::Text | TemplateTag::Span, TemplateTag::Image) => {
                 parent.inline.push(TemplateInline::Image(node));
             }
-            (TemplateTag::Text | TemplateTag::Span, _) => {
+            (TemplateTag::Link, TemplateTag::Span) => {
+                parent.inline.push(TemplateInline::Span(node));
+            }
+            (TemplateTag::Link, TemplateTag::Image) => {
+                parent.inline.push(TemplateInline::Image(node));
+            }
+            (TemplateTag::Text | TemplateTag::Span | TemplateTag::Link, _) => {
                 return Err(TaffyCanvasError::InvalidNode {
                     node: tag_name(node.tag).to_string(),
-                    message: "only span and image nodes may appear inside text/span".to_string(),
+                    message: "only span, a, and image nodes may appear inside text/span/a"
+                        .to_string(),
                 });
             }
             _ => parent.children.push(node),
@@ -506,10 +573,11 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
         b"text" => TemplateTag::Text,
         b"image" => TemplateTag::Image,
         b"span" => TemplateTag::Span,
+        b"a" => TemplateTag::Link,
         other => {
             return Err(TaffyCanvasError::InvalidNode {
                 node: String::from_utf8_lossy(other).into_owned(),
-                message: "supported nodes are view, text, image, span".to_string(),
+                message: "supported nodes are view, text, image, span, a".to_string(),
             });
         }
     };
@@ -546,5 +614,6 @@ fn tag_name(tag: TemplateTag) -> &'static str {
         TemplateTag::Text => "text",
         TemplateTag::Image => "image",
         TemplateTag::Span => "span",
+        TemplateTag::Link => "a",
     }
 }

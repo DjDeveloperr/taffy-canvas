@@ -1,9 +1,10 @@
+use std::ops::Range;
+
 use skia_safe::{
     Color as SkColor, FontMgr, FontStyle,
     textlayout::{
-        Decoration, FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle,
-        PlaceholderAlignment, PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline,
-        TextDecoration, TextDecorationStyle, TextStyle, TypefaceFontProvider,
+        FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, PlaceholderAlignment,
+        PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline, TextStyle, TypefaceFontProvider,
     },
 };
 
@@ -11,7 +12,7 @@ use crate::{
     asset::FontAsset,
     document::{
         Color, FontSlant, FontStyleSpec, InlineFragment, InlineImageRun, LineHeightValue,
-        StyleSpec, TextAlign, TextDecorationStyleKind, TextRun,
+        StyleSpec, TextAlign, TextRun,
     },
 };
 
@@ -25,6 +26,14 @@ pub struct TextMetrics {
 pub struct ParagraphScene {
     pub paragraph: Paragraph,
     pub inline_images: Vec<InlineImageRun>,
+    pub text_runs: Vec<ParagraphTextRun>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ParagraphTextRun {
+    pub range: Range<usize>,
+    pub style: StyleSpec,
+    pub href: Option<String>,
 }
 
 pub trait TextMeasurer: Send + Sync {
@@ -39,6 +48,7 @@ pub trait TextMeasurer: Send + Sync {
         let run = InlineFragment::Text(TextRun {
             text: text.to_string(),
             style: style.clone(),
+            href: None,
         });
         self.measure_fragments(std::slice::from_ref(&run), style, max_width)
     }
@@ -159,12 +169,15 @@ pub fn build_paragraph_scene(
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, collection.clone());
     let mut inline_images = Vec::new();
+    let mut text_runs = Vec::new();
+    let mut cursor = 0usize;
     if fragments.is_empty() {
         builder.push_style(&text_style(style));
         builder.pop();
         return ParagraphScene {
             paragraph: builder.build(),
             inline_images,
+            text_runs,
         };
     }
 
@@ -175,17 +188,28 @@ pub fn build_paragraph_scene(
                 builder.push_style(&run_style);
                 builder.add_text(&run.text);
                 builder.pop();
+                let len = run.text.encode_utf16().count();
+                if len > 0 {
+                    text_runs.push(ParagraphTextRun {
+                        range: cursor..cursor + len,
+                        style: run.style.clone(),
+                        href: run.href.clone(),
+                    });
+                    cursor += len;
+                }
             }
             InlineFragment::Image(image) => {
                 inline_images.push(image.clone());
                 let placeholder = inline_image_placeholder(image);
                 builder.add_placeholder(&placeholder);
+                cursor += 1;
             }
         }
     }
     ParagraphScene {
         paragraph: builder.build(),
         inline_images,
+        text_runs,
     }
 }
 
@@ -208,9 +232,6 @@ fn text_style(style: &StyleSpec) -> TextStyle {
     }
     if style.baseline_shift != 0.0 {
         text_style.set_baseline_shift(style.baseline_shift);
-    }
-    if has_decoration(style) {
-        text_style.set_decoration(&text_decoration(style));
     }
     text_style
 }
@@ -284,33 +305,8 @@ fn line_height_ratio(value: LineHeightValue, font_size: u32) -> f32 {
     }
 }
 
-fn has_decoration(style: &StyleSpec) -> bool {
+pub fn has_decoration(style: &StyleSpec) -> bool {
     style.text_decoration.underline
         || style.text_decoration.overline
         || style.text_decoration.line_through
-}
-
-fn text_decoration(style: &StyleSpec) -> Decoration {
-    let mut decoration = Decoration::default();
-    let mut decoration_type = TextDecoration::default();
-    if style.text_decoration.underline {
-        decoration_type |= TextDecoration::UNDERLINE;
-    }
-    if style.text_decoration.overline {
-        decoration_type |= TextDecoration::OVERLINE;
-    }
-    if style.text_decoration.line_through {
-        decoration_type |= TextDecoration::LINE_THROUGH;
-    }
-    decoration.ty = decoration_type;
-    decoration.style = match style.text_decoration.style {
-        TextDecorationStyleKind::Solid => TextDecorationStyle::Solid,
-        TextDecorationStyleKind::Double => TextDecorationStyle::Double,
-        TextDecorationStyleKind::Dotted => TextDecorationStyle::Dotted,
-        TextDecorationStyleKind::Dashed => TextDecorationStyle::Dashed,
-        TextDecorationStyleKind::Wavy => TextDecorationStyle::Wavy,
-    };
-    decoration.thickness_multiplier = style.text_decoration.thickness_multiplier.max(0.0);
-    decoration.color = to_skia_color(style.text_decoration.color.unwrap_or(style.color));
-    decoration
 }

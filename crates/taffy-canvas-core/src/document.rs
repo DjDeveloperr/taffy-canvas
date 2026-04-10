@@ -197,6 +197,7 @@ impl Default for TextDecorationSpec {
 pub struct TextRun {
     pub text: String,
     pub style: StyleSpec,
+    pub href: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -233,9 +234,11 @@ pub struct StyleSpec {
     pub flex_shrink: f32,
     pub grid_template_columns: Option<String>,
     pub grid_template_rows: Option<String>,
+    pub grid_template_areas: Option<String>,
     pub grid_auto_columns: Option<String>,
     pub grid_auto_rows: Option<String>,
     pub grid_auto_flow: Option<String>,
+    pub grid_area: Option<String>,
     pub grid_column: Option<String>,
     pub grid_row: Option<String>,
     pub gap: Option<LengthValue>,
@@ -285,9 +288,11 @@ impl Default for StyleSpec {
             flex_shrink: 1.0,
             grid_template_columns: None,
             grid_template_rows: None,
+            grid_template_areas: None,
             grid_auto_columns: None,
             grid_auto_rows: None,
             grid_auto_flow: None,
+            grid_area: None,
             grid_column: None,
             grid_row: None,
             gap: None,

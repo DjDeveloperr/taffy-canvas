@@ -101,9 +101,12 @@ pub fn style_from_attrs(
             "flex-shrink" => style.flex_shrink = parse_number(value, key)?,
             "grid-template-columns" => style.grid_template_columns = Some(value.trim().to_string()),
             "grid-template-rows" => style.grid_template_rows = Some(value.trim().to_string()),
+            "grid-template-areas" => style.grid_template_areas = Some(value.trim().to_string()),
+            "grid-template" => parse_grid_template_shorthand(&mut style, value, key)?,
             "grid-auto-columns" => style.grid_auto_columns = Some(value.trim().to_string()),
             "grid-auto-rows" => style.grid_auto_rows = Some(value.trim().to_string()),
             "grid-auto-flow" => style.grid_auto_flow = Some(value.trim().to_string()),
+            "grid-area" => style.grid_area = Some(value.trim().to_string()),
             "grid-column" => style.grid_column = Some(value.trim().to_string()),
             "grid-row" => style.grid_row = Some(value.trim().to_string()),
             "gap" => style.gap = Some(parse_length(value, key)?),
@@ -223,7 +226,7 @@ pub fn style_from_attrs(
                     }
                 }
             }
-            "id" | "src" | "value" => {}
+            "id" | "src" | "value" | "href" => {}
             _ => {
                 metadata.insert(key.clone(), value.clone());
             }
@@ -525,4 +528,78 @@ fn parse_border_shorthand(style: &mut StyleSpec, value: &str, attribute: &str) -
     }
 
     Ok(())
+}
+
+fn parse_grid_template_shorthand(
+    style: &mut StyleSpec,
+    value: &str,
+    attribute: &str,
+) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        });
+    }
+
+    let (rows_part, columns_part) = match trimmed.rsplit_once('/') {
+        Some((rows, columns)) => (rows.trim(), Some(columns.trim())),
+        None => (trimmed, None),
+    };
+
+    let (areas, row_sizes) = split_grid_template_rows(rows_part);
+    if !areas.is_empty() {
+        style.grid_template_areas = Some(areas.join(" "));
+    }
+    if !row_sizes.is_empty() {
+        style.grid_template_rows = Some(row_sizes.join(" "));
+    }
+    if let Some(columns) = columns_part
+        && !columns.is_empty()
+    {
+        style.grid_template_columns = Some(columns.to_string());
+    }
+
+    Ok(())
+}
+
+fn split_grid_template_rows(value: &str) -> (Vec<String>, Vec<String>) {
+    let mut areas = Vec::new();
+    let mut sizes = Vec::new();
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' | '\'' => {
+                let quote = ch;
+                let mut area = String::new();
+                while let Some(next) = chars.next() {
+                    if next == quote {
+                        break;
+                    }
+                    area.push(next);
+                }
+                if !area.trim().is_empty() {
+                    areas.push(format!("\"{}\"", area.trim()));
+                }
+            }
+            whitespace if whitespace.is_whitespace() => {}
+            _ => {
+                let mut token = String::from(ch);
+                while let Some(next) = chars.peek().copied() {
+                    if next.is_whitespace() {
+                        break;
+                    }
+                    token.push(next);
+                    chars.next();
+                }
+                if !token.trim().is_empty() {
+                    sizes.push(token);
+                }
+            }
+        }
+    }
+
+    (areas, sizes)
 }
