@@ -24,7 +24,9 @@ Implemented today:
 - Skia-backed text measurement used for both layout and paint
 - CPU rendering path
 - reusable renderer handles for parallel async rendering
+- reusable prepared-template handles for compile-once/resource-once/render-many flows
 - reusable resource handles for image assets and custom font aliases
+- filesystem-backed resource loading in the Rust core
 - decoded image caching inside reusable resource handles
 - layout support for:
   - absolute and fixed positioning
@@ -49,7 +51,7 @@ Implemented today:
   - image border-radius clipping
   - text color, size, family, weight, alignment
   - image fit: `fill`, `contain`, `cover`
-- CI for build and test on macOS and Linux
+- CI for build and test on macOS, Linux, and Windows
 - integration tests, golden-image fixtures, and benchmarks
 
 Still not implemented:
@@ -57,9 +59,7 @@ Still not implemented:
 - GPU-backed rendering path
 - inline images and richer rich text flow beyond styled spans
 - broader CSS/Taffy coverage beyond the current subset
-- production asset/font loading abstractions beyond in-memory resources
 - pooled prepared-image caches and deeper render-time reuse
-- higher-level template helper APIs
 
 ## XML Model
 
@@ -128,6 +128,31 @@ resources.register_font("HUD Display", std::fs::read("display.ttf")?);
 # Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
+Using filesystem-backed resources plus a prepared template:
+
+```rust
+use taffy_canvas_core::{FileSystemResourceProvider, RenderOptions, Renderer, Template, TemplateParams};
+
+let template = Template::compile(
+    r##"
+    <view width="320" height="180" background="#101820">
+      <image src="avatar.png" width="64" height="64" fit="cover" />
+      <text font-family="HUD Display" color="#ffffff">Hello {{name}}</text>
+    </view>
+    "##,
+)?;
+
+let mut resources = FileSystemResourceProvider::new("./assets");
+resources.register_font_path("HUD Display", "./fonts/display.ttf")?;
+
+let prepared = Renderer::default().prepare(template, resources);
+
+let mut params = TemplateParams::new();
+params.insert("name".to_string(), "Canvas".to_string());
+let output = prepared.render(&params, RenderOptions::default())?;
+# Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
+```
+
 ## Node Usage
 
 The Node binding currently exposes:
@@ -136,20 +161,25 @@ The Node binding currently exposes:
 - `createResources()`
 - `addResourceAsset(resources, key, bytes)`
 - `addResourceFont(resources, family, bytes)`
+- `addResourceAssetFromFile(resources, key, path)`
+- `addResourceFontFromFile(resources, family, path)`
 - `compileTemplate(xml)`
+- `prepareTemplate(resources, template)`
+- `prepareTemplateWithRenderer(renderer, resources, template)`
 - `renderXml()` / `renderXmlSync()`
 - `renderCompiled()` / `renderCompiledSync()`
 - `renderWithRenderer()` / `renderWithRendererSync()`
 - `renderCompiledWithResources()` / `renderCompiledWithResourcesSync()`
 - `renderWithRendererAndResources()` / `renderWithRendererAndResourcesSync()`
+- `renderPrepared()` / `renderPreparedSync()`
 
 Typical fast path:
 
 ```js
 const renderer = createRenderer();
 const resources = createResources();
-addResourceAsset(resources, "avatar", avatarBytes);
-addResourceFont(resources, "HUD Display", fontBytes);
+addResourceAssetFromFile(resources, "avatar", "./assets/avatar.png");
+addResourceFontFromFile(resources, "HUD Display", "./fonts/display.ttf");
 
 const template = compileTemplate(`
   <view width="320" height="180" background="#101820">
@@ -158,7 +188,9 @@ const template = compileTemplate(`
   </view>
 `);
 
-const png = await renderWithRendererAndResources(renderer, resources, template, {
+const prepared = prepareTemplateWithRenderer(renderer, resources, template);
+
+const png = await renderPrepared(prepared, {
   name: "Canvas",
 });
 ```
@@ -229,6 +261,6 @@ CI is defined in [`ci.yml`](/Users/dj/Developer/taffy-canvas/.github/workflows/c
 
 - richer text flow and inline content
 - broader style coverage
-- image/font cache layers that avoid repeated decode work
 - GPU path where available without requiring it
-- higher-level templating utilities for HUD data binding
+- broader asset/resource abstractions on the Node side beyond file-to-memory helpers
+- higher-level templating utilities for HUD data binding beyond prepared templates

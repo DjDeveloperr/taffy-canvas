@@ -16,6 +16,13 @@ npm run build
 npm run test:smoke
 ```
 
+The Node binding supports:
+
+- byte-backed resources via `addResourceAsset()` and `addResourceFont()`
+- file-backed resource loading into reusable resource handles via `addResourceAssetFromFile()` and `addResourceFontFromFile()`
+- prepared template handles via `prepareTemplate()` and `prepareTemplateWithRenderer()`
+- repeated async renders through `renderPrepared()`
+
 Packing the main package and the current platform binary package:
 
 ```bash
