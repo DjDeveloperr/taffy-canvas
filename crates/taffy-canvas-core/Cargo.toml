@@ -1,0 +1,27 @@
+[package]
+name = "taffy-canvas-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+indexmap.workspace = true
+once_cell.workspace = true
+quick-xml.workspace = true
+rayon.workspace = true
+regex.workspace = true
+rustc-hash.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+skia-safe.workspace = true
+smallvec.workspace = true
+taffy.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "render"
+harness = false

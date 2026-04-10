@@ -1,0 +1,38 @@
+use std::sync::Arc;
+
+use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
+
+use crate::{
+    asset::AssetProvider,
+    render::{render_template, RenderOptions, RenderOutput},
+    Template, TemplateParams,
+};
+
+#[derive(Clone)]
+pub struct RendererPool {
+    pool: Arc<ThreadPool>,
+}
+
+impl RendererPool {
+    pub fn new(threads: usize) -> crate::Result<Self> {
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(threads.max(1))
+            .build()
+            .map_err(|error| crate::TaffyCanvasError::Render(error.to_string()))?;
+        Ok(Self { pool: Arc::new(pool) })
+    }
+
+    pub fn render_many(
+        &self,
+        template: &Template,
+        jobs: Vec<TemplateParams>,
+        assets: Arc<dyn AssetProvider>,
+        options: RenderOptions,
+    ) -> crate::Result<Vec<RenderOutput>> {
+        self.pool.install(|| {
+            jobs.into_par_iter()
+                .map(|params| render_template(template, &params, assets.as_ref(), options))
+                .collect()
+        })
+    }
+}

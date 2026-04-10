@@ -1,0 +1,14 @@
+[package]
+name = "taffy-canvas-node"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi.workspace = true
+napi-derive.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+taffy-canvas-core = { path = "../taffy-canvas-core" }

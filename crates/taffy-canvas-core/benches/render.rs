@@ -1,0 +1,26 @@
+use std::collections::BTreeMap;
+
+use criterion::{criterion_group, criterion_main, Criterion};
+use taffy_canvas_core::{MemoryAssetProvider, RenderOptions, Template, TemplateParams};
+
+fn bench_render(c: &mut Criterion) {
+    let xml = r#"
+        <view width="256" height="128" background="#101820">
+          <view width="96" height="96" background="#ff4f64" position="absolute" left="16" top="16" radius="12" />
+          <text left="128" top="24" position="absolute" color="#ffffff" font-size="18">Hello {{name}}</text>
+        </view>
+    "#;
+    let template = Template::compile(xml).expect("compile");
+    let mut params = TemplateParams::new();
+    params.insert("name".to_string(), "Canvas".to_string());
+    let assets = MemoryAssetProvider::new(BTreeMap::new());
+
+    c.bench_function("compile+render", |b| {
+        b.iter(|| {
+            let _ = taffy_canvas_core::render_template(&template, &params, &assets, RenderOptions::default());
+        });
+    });
+}
+
+criterion_group!(benches, bench_render);
+criterion_main!(benches);
