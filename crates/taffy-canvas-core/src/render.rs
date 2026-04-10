@@ -36,7 +36,7 @@ use skia_safe::gpu;
 use crate::{
     Result,
     asset::{PreparedImageRequest, ResourceProvider},
-    document::{Color, InlineFragment, LayoutNode, LayoutNodeKind},
+    document::{Color, InlineFragment, LayoutNode, LayoutNodeKind, OverflowMode},
     error::TaffyCanvasError,
     layout::layout_document,
     template::{Template, TemplateParams},
@@ -466,7 +466,8 @@ fn draw_node(
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
     draw_box(canvas, node);
-    let should_clip = node.style.overflow_hidden
+    let should_clip = overflow_clips(node.style.overflow_x)
+        || overflow_clips(node.style.overflow_y)
         || matches!(node.kind, LayoutNodeKind::Image { .. }) && node.style.border_radius > 0.0;
     if should_clip {
         canvas.save();
@@ -533,6 +534,7 @@ fn draw_text(
 ) -> Result<()> {
     let mut scene = measurer.build_paragraph_scene(fragments, &node.style);
     scene.paragraph.layout(node.layout.width.max(1.0));
+    draw_text_backgrounds(canvas, node, &scene);
     scene
         .paragraph
         .paint(canvas, (node.layout.x, node.layout.y));
@@ -565,16 +567,25 @@ fn to_skia_color(color: Color) -> SkColor {
 }
 
 fn clip_node(canvas: &skia_safe::Canvas, node: &LayoutNode) {
-    let rect = Rect::from_xywh(
+    let node_rect = Rect::from_xywh(
         node.layout.x,
         node.layout.y,
         node.layout.width,
         node.layout.height,
     );
-    if node.style.border_radius > 0.0 {
-        let rrect = RRect::new_rect_xy(rect, node.style.border_radius, node.style.border_radius);
+    let should_radius_clip = node.style.border_radius > 0.0
+        && (matches!(node.kind, LayoutNodeKind::Image { .. })
+            || (overflow_clips(node.style.overflow_x) && overflow_clips(node.style.overflow_y)));
+
+    if should_radius_clip {
+        let rrect = RRect::new_rect_xy(
+            node_rect,
+            node.style.border_radius,
+            node.style.border_radius,
+        );
         canvas.clip_rrect(rrect, None, Some(true));
-    } else {
+    } else if overflow_clips(node.style.overflow_x) || overflow_clips(node.style.overflow_y) {
+        let rect = overflow_clip_rect(node);
         canvas.clip_rect(rect, None, Some(true));
     }
 }
@@ -644,6 +655,28 @@ fn draw_text_decorations(canvas: &skia_safe::Canvas, node: &LayoutNode, scene: &
                 .first()
                 .map(|(_, metrics)| metrics.font_metrics);
             draw_run_decoration(canvas, rect, line_metric, font_metrics, &run.style);
+        }
+    }
+}
+
+fn draw_text_backgrounds(canvas: &skia_safe::Canvas, node: &LayoutNode, scene: &ParagraphScene) {
+    for run in &scene.text_runs {
+        let Some(background) = run.style.background else {
+            continue;
+        };
+
+        let rects = scene.paragraph.get_rects_for_range(
+            run.range.clone(),
+            RectHeightStyle::Tight,
+            RectWidthStyle::Tight,
+        );
+        for textbox in rects {
+            let rect = textbox.rect.with_offset((node.layout.x, node.layout.y));
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            paint.set_style(PaintStyle::Fill);
+            paint.set_color(to_skia_color(background));
+            canvas.draw_rect(rect, &paint);
         }
     }
 }
@@ -833,4 +866,32 @@ fn range_intersects(left: &Range<usize>, right: &Range<usize>) -> bool {
 
 fn clamp_range(range: &Range<usize>, start: usize, end: usize) -> Range<usize> {
     range.start.max(start)..range.end.min(end)
+}
+
+fn overflow_clips(mode: OverflowMode) -> bool {
+    matches!(mode, OverflowMode::Hidden | OverflowMode::Clip)
+}
+
+fn overflow_clip_rect(node: &LayoutNode) -> Rect {
+    let x = if overflow_clips(node.style.overflow_x) {
+        node.layout.x
+    } else {
+        -1_000_000.0
+    };
+    let y = if overflow_clips(node.style.overflow_y) {
+        node.layout.y
+    } else {
+        -1_000_000.0
+    };
+    let width = if overflow_clips(node.style.overflow_x) {
+        node.layout.width
+    } else {
+        2_000_000.0
+    };
+    let height = if overflow_clips(node.style.overflow_y) {
+        node.layout.height
+    } else {
+        2_000_000.0
+    };
+    Rect::from_xywh(x, y, width, height)
 }

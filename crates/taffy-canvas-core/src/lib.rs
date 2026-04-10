@@ -16,8 +16,8 @@ pub use asset::{
 pub use document::{
     Color, DisplayKind, Document, FontSlant, FontStyleSpec, ImageFit, InlineFragment,
     InlineImageRun, Insets, LayoutBox, LayoutNode, LayoutNodeKind, LengthAutoValue, LengthValue,
-    LineHeightValue, Node, NodeKind, PositionKind, RenderedDocument, StyleSpec, TextAlign,
-    TextDecorationSpec, TextDecorationStyleKind, TextRun,
+    LineHeightValue, Node, NodeKind, OverflowMode, PositionKind, RenderedDocument, StyleSpec,
+    TextAlign, TextDecorationSpec, TextDecorationStyleKind, TextRun, TextShadowSpec,
 };
 pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;

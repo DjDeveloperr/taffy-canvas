@@ -34,6 +34,7 @@ enum TemplateInline {
     Text(CompiledString),
     Span(TemplateNode),
     Link(TemplateNode),
+    Break,
     Image(TemplateNode),
 }
 
@@ -44,6 +45,7 @@ enum TemplateTag {
     Image,
     Span,
     Link,
+    Break,
 }
 
 const DEFAULT_LINK_COLOR: Color = Color {
@@ -233,6 +235,12 @@ impl TemplateNode {
                     message: "link nodes are only valid inside text".to_string(),
                 });
             }
+            TemplateTag::Break => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: "br".to_string(),
+                    message: "br nodes are only valid inside text".to_string(),
+                });
+            }
         };
 
         let children = self
@@ -345,6 +353,14 @@ fn flatten_inline_fragments(
                 let inline_image = image.instantiate_inline_image(params)?;
                 value.push('\u{FFFC}');
                 fragments.push(InlineFragment::Image(inline_image));
+            }
+            TemplateInline::Break => {
+                value.push('\n');
+                fragments.push(InlineFragment::Text(TextRun {
+                    text: "\n".to_string(),
+                    style: base_style.clone(),
+                    href: current_href.map(str::to_string),
+                }));
             }
         }
     }
@@ -464,6 +480,9 @@ fn merge_inline_style(
     } else if is_link {
         merged.color = DEFAULT_LINK_COLOR;
     }
+    if attrs.contains_key("background") || attrs.contains_key("background-color") {
+        merged.background = parsed.background;
+    }
     if attrs.contains_key("font-size") {
         merged.font.size = parsed.font.size;
     }
@@ -487,6 +506,9 @@ fn merge_inline_style(
     }
     if attrs.contains_key("baseline-shift") {
         merged.baseline_shift = parsed.baseline_shift;
+    }
+    if attrs.contains_key("text-shadow") {
+        merged.text_shadow = parsed.text_shadow;
     }
     if attrs.contains_key("text-decoration") {
         merged.text_decoration.underline = parsed.text_decoration.underline;
@@ -523,7 +545,7 @@ fn push_inline_text(node: &mut TemplateNode, decoded: &str) {
                     .push(TemplateInline::Text(CompiledString::compile(decoded)));
             }
         }
-        TemplateTag::View | TemplateTag::Image => {}
+        TemplateTag::View | TemplateTag::Image | TemplateTag::Break => {}
     }
 }
 
@@ -539,6 +561,9 @@ fn attach_node(
             }
             (TemplateTag::Text | TemplateTag::Span | TemplateTag::Link, TemplateTag::Link) => {
                 parent.inline.push(TemplateInline::Link(node));
+            }
+            (TemplateTag::Text | TemplateTag::Span | TemplateTag::Link, TemplateTag::Break) => {
+                parent.inline.push(TemplateInline::Break);
             }
             (TemplateTag::Text | TemplateTag::Span, TemplateTag::Image) => {
                 parent.inline.push(TemplateInline::Image(node));
@@ -574,10 +599,11 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
         b"image" => TemplateTag::Image,
         b"span" => TemplateTag::Span,
         b"a" => TemplateTag::Link,
+        b"br" => TemplateTag::Break,
         other => {
             return Err(TaffyCanvasError::InvalidNode {
                 node: String::from_utf8_lossy(other).into_owned(),
-                message: "supported nodes are view, text, image, span, a".to_string(),
+                message: "supported nodes are view, text, image, span, a, br".to_string(),
             });
         }
     };
@@ -615,5 +641,6 @@ fn tag_name(tag: TemplateTag) -> &'static str {
         TemplateTag::Image => "image",
         TemplateTag::Span => "span",
         TemplateTag::Link => "a",
+        TemplateTag::Break => "br",
     }
 }

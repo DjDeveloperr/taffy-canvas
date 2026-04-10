@@ -103,6 +103,14 @@ pub enum PositionKind {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OverflowMode {
+    #[default]
+    Visible,
+    Hidden,
+    Clip,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DisplayKind {
     #[default]
     Flex,
@@ -193,6 +201,14 @@ impl Default for TextDecorationSpec {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextShadowSpec {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub blur_radius: f32,
+    pub color: Color,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextRun {
     pub text: String,
@@ -249,7 +265,8 @@ pub struct StyleSpec {
     pub inset: Insets<LengthAutoValue>,
     pub display: DisplayKind,
     pub position: PositionKind,
-    pub overflow_hidden: bool,
+    pub overflow_x: OverflowMode,
+    pub overflow_y: OverflowMode,
     pub background: Option<Color>,
     pub border_color: Option<Color>,
     pub border_width: f32,
@@ -260,6 +277,7 @@ pub struct StyleSpec {
     pub letter_spacing: f32,
     pub word_spacing: f32,
     pub baseline_shift: f32,
+    pub text_shadow: Option<TextShadowSpec>,
     pub text_decoration: TextDecorationSpec,
     pub text_align: TextAlign,
     pub image_fit: ImageFit,
@@ -303,7 +321,8 @@ impl Default for StyleSpec {
             inset: Insets::default(),
             display: DisplayKind::Flex,
             position: PositionKind::Relative,
-            overflow_hidden: false,
+            overflow_x: OverflowMode::Visible,
+            overflow_y: OverflowMode::Visible,
             background: None,
             border_color: None,
             border_width: 0.0,
@@ -314,6 +333,7 @@ impl Default for StyleSpec {
             letter_spacing: 0.0,
             word_spacing: 0.0,
             baseline_shift: 0.0,
+            text_shadow: None,
             text_decoration: TextDecorationSpec::default(),
             text_align: TextAlign::Start,
             image_fit: ImageFit::Fill,

@@ -209,6 +209,57 @@ fn template_supports_inline_links_with_default_visual_style() {
 }
 
 #[test]
+fn template_supports_line_breaks_and_inline_effects() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="120">
+          <text color="#ffffff">Top<br /><span background="#ff0000" text-shadow="1 2 0 #0000ff">Bottom</span></text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    match &document.root.children[0].kind {
+        taffy_canvas_core::NodeKind::Text { value, fragments } => {
+            assert_eq!(value, "Top\nBottom");
+            let InlineFragment::Text(line_break) = &fragments[1] else {
+                panic!("expected explicit line break fragment");
+            };
+            assert_eq!(line_break.text, "\n");
+            let InlineFragment::Text(styled) = &fragments[2] else {
+                panic!("expected styled text fragment");
+            };
+            assert_eq!(
+                styled.style.background,
+                Some(Color {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255
+                })
+            );
+            let shadow = styled.style.text_shadow.expect("text shadow parsed");
+            assert_eq!(shadow.offset_x, 1.0);
+            assert_eq!(shadow.offset_y, 2.0);
+            assert_eq!(shadow.blur_radius, 0.0);
+            assert_eq!(
+                shadow.color,
+                Color {
+                    r: 0,
+                    g: 0,
+                    b: 255,
+                    a: 255
+                }
+            );
+        }
+        other => panic!("expected text node, got {other:?}"),
+    }
+}
+
+#[test]
 fn layout_computes_absolute_offsets() {
     let template = Template::compile(
         r##"
@@ -1279,6 +1330,141 @@ fn render_draws_text_decoration_color_and_styles() {
     });
     assert!(green_pixels > 4);
     assert_ne!(solid.pixels_rgba, dotted.pixels_rgba);
+}
+
+#[test]
+fn render_draws_fragment_backgrounds() {
+    let template = Template::compile(
+        r##"
+        <view width="160" height="56" background="#ffffff">
+          <text color="#000000" font-size="24">A<span background="#ff0000">B</span></text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    let red_pixels = count_pixels(&output.pixels_rgba, |pixel| {
+        pixel.r > 200 && pixel.g < 40 && pixel.b < 40 && pixel.a > 0
+    });
+    assert!(red_pixels > 8);
+}
+
+#[test]
+fn render_draws_text_shadows() {
+    let template = Template::compile(
+        r##"
+        <view width="180" height="64" background="#ffffff">
+          <text color="#222222" font-size="24" text-shadow="2 2 0 #0000ff">Shadow</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    let blue_pixels = count_pixels(&output.pixels_rgba, |pixel| {
+        pixel.r < 40 && pixel.g < 40 && pixel.b > 120 && pixel.a > 0
+    });
+    assert!(blue_pixels > 6);
+}
+
+#[test]
+fn render_supports_overflow_clip_mode() {
+    let template = Template::compile(
+        r##"
+        <view width="24" height="24" background="#111827">
+          <view width="12" height="12" position="absolute" left="4" top="4" overflow="clip" radius="4" background="#1f2937">
+            <view width="12" height="12" position="absolute" left="6" top="6" background="#ef4444" />
+          </view>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    assert_eq!(
+        pixel(&output.pixels_rgba, 24, 20, 20),
+        Color {
+            r: 17,
+            g: 24,
+            b: 39,
+            a: 255
+        }
+    );
+}
+
+#[test]
+fn render_supports_axis_specific_overflow_clipping() {
+    let template = Template::compile(
+        r##"
+        <view width="32" height="24" background="#0f172a">
+          <view width="10" height="6" position="absolute" left="4" top="4" overflow-x="clip" overflow-y="visible" background="#1e293b">
+            <view width="16" height="10" position="absolute" left="2" top="2" background="#ff0000" />
+          </view>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    assert_eq!(
+        pixel(&output.pixels_rgba, 32, 18, 8),
+        Color {
+            r: 15,
+            g: 23,
+            b: 42,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 32, 12, 13),
+        Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
 }
 
 #[test]

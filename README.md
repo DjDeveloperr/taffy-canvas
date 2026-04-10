@@ -65,19 +65,13 @@ Implemented today:
   - backgrounds
   - borders and `border` shorthand
   - border radius
-  - `overflow="hidden"` clipping
+  - `overflow="hidden"` and `overflow="clip"` clipping
+  - `overflow-x` and `overflow-y` axis-specific clipping
   - image border-radius clipping
-  - text color, size, family, weight, style, line height, spacing, baseline shift, alignment, inline images, links, and explicit text decoration rendering
+  - text color, size, family, weight, style, line height, spacing, baseline shift, alignment, inline images, links, inline fragment backgrounds, text shadow, and explicit text decoration rendering
   - image fit: `fill`, `contain`, `cover`
 - CI for build and test on macOS, Linux, and Windows
 - integration tests, golden-image fixtures, and benchmarks
-
-Still not implemented:
-
-- richer rich text semantics beyond spans and inline image placeholders
-  - more advanced per-fragment effects are still incomplete
-- broader CSS/Taffy coverage beyond the current flex/grid subset
-  - overflow modes beyond `hidden` are still incomplete
 
 ## XML Model
 
@@ -107,17 +101,27 @@ Inline images are supported inside `text` as well:
 </text>
 ```
 
+Line breaks and richer inline effects are supported too:
+
+```xml
+<text color="#ffffff">
+  Top<br />
+  <span background="#203040" text-shadow="1 2 0 #000000">Bottom</span>
+</text>
+```
+
 Rules:
 
 - the root element must be `<view>`
 - root width and height are required and must be absolute lengths
 - template params use `{{name}}`
 - `text` can use inner text or a `value` attribute
-- `text` can contain nested `<span>` and `<a>` nodes for inline styling plus inline `<image>` nodes
+- `text` can contain nested `<span>` and `<a>` nodes for inline styling, inline `<image>` nodes, and `<br />` line breaks
 - `image` requires `src`
 - inline `image` nodes require explicit `width` and `height`
 - layout/style attributes include grid tracks, named areas, and placement plus shorthands such as `size`, `inset`, `border`, `flex`, `grid-area`, `grid-template`, `place-items`, and `place-self`
-- text styling attributes include `font-style`, `line-height`, `letter-spacing`, `word-spacing`, `baseline-shift`, and `text-decoration*`
+- text styling attributes include `font-style`, `line-height`, `letter-spacing`, `word-spacing`, `baseline-shift`, `background`, `text-shadow`, and `text-decoration*`
+- overflow supports `visible`, `hidden`, and `clip`, including `overflow-x` and `overflow-y`
 
 ## Rust Usage
 

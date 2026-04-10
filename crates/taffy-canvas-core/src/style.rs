@@ -3,13 +3,12 @@ use std::collections::BTreeMap;
 use crate::{
     Result,
     document::{
-        DisplayKind, FontSlant, FontStyleSpec, ImageFit, Insets, LengthAutoValue, LengthValue,
-        LineHeightValue, PositionKind, StyleSpec, TextAlign, TextDecorationStyleKind,
+        Color, DisplayKind, FontSlant, FontStyleSpec, ImageFit, Insets, LengthAutoValue,
+        LengthValue, LineHeightValue, OverflowMode, PositionKind, StyleSpec, TextAlign,
+        TextDecorationStyleKind, TextShadowSpec,
     },
     error::TaffyCanvasError,
 };
-
-use crate::document::Color;
 
 pub fn parse_color(value: &str) -> Result<Color> {
     let value = value.trim();
@@ -156,17 +155,12 @@ pub fn style_from_attrs(
                 }
             }
             "overflow" => {
-                style.overflow_hidden = match value.trim() {
-                    "visible" => false,
-                    "hidden" => true,
-                    other => {
-                        return Err(TaffyCanvasError::InvalidAttribute {
-                            attribute: key.clone(),
-                            message: other.to_string(),
-                        });
-                    }
-                }
+                let mode = parse_overflow_mode(value, key)?;
+                style.overflow_x = mode;
+                style.overflow_y = mode;
             }
+            "overflow-x" => style.overflow_x = parse_overflow_mode(value, key)?,
+            "overflow-y" => style.overflow_y = parse_overflow_mode(value, key)?,
             "background" | "background-color" => style.background = Some(parse_color(value)?),
             "border-color" => style.border_color = Some(parse_color(value)?),
             "border" => parse_border_shorthand(&mut style, value, key)?,
@@ -192,6 +186,7 @@ pub fn style_from_attrs(
             "letter-spacing" => style.letter_spacing = parse_number(value, key)?,
             "word-spacing" => style.word_spacing = parse_number(value, key)?,
             "baseline-shift" => style.baseline_shift = parse_number(value, key)?,
+            "text-shadow" => style.text_shadow = Some(parse_text_shadow(value, key)?),
             "text-decoration" => parse_text_decoration(&mut style, value, key)?,
             "text-decoration-color" => style.text_decoration.color = Some(parse_color(value)?),
             "text-decoration-style" => {
@@ -316,6 +311,41 @@ fn parse_line_height(value: &str, attribute: &str) -> Result<Option<LineHeightVa
     Ok(Some(LineHeightValue::Multiplier(parse_number(
         trimmed, attribute,
     )?)))
+}
+
+fn parse_overflow_mode(value: &str, attribute: &str) -> Result<OverflowMode> {
+    match value.trim() {
+        "visible" => Ok(OverflowMode::Visible),
+        "hidden" => Ok(OverflowMode::Hidden),
+        "clip" => Ok(OverflowMode::Clip),
+        other => Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: other.to_string(),
+        }),
+    }
+}
+
+fn parse_text_shadow(value: &str, attribute: &str) -> Result<TextShadowSpec> {
+    let parts = value.split_whitespace().collect::<Vec<_>>();
+    if parts.len() < 3 || parts.len() > 4 {
+        return Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        });
+    }
+
+    let color = if parts.len() == 4 {
+        parse_color(parts[3])?
+    } else {
+        Color::BLACK
+    };
+
+    Ok(TextShadowSpec {
+        offset_x: parse_number(parts[0], attribute)?,
+        offset_y: parse_number(parts[1], attribute)?,
+        blur_radius: parse_number(parts[2], attribute)?.max(0.0),
+        color,
+    })
 }
 
 fn parse_length_insets(value: &str, attribute: &str) -> Result<Insets<LengthValue>> {

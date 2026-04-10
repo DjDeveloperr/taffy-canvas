@@ -4,7 +4,8 @@ use skia_safe::{
     Color as SkColor, FontMgr, FontStyle,
     textlayout::{
         FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, PlaceholderAlignment,
-        PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline, TextStyle, TypefaceFontProvider,
+        PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline, TextShadow, TextStyle,
+        TypefaceFontProvider,
     },
 };
 
@@ -232,6 +233,13 @@ fn text_style(style: &StyleSpec) -> TextStyle {
     }
     if style.baseline_shift != 0.0 {
         text_style.set_baseline_shift(style.baseline_shift);
+    }
+    if let Some(shadow) = style.text_shadow {
+        text_style.add_shadow(TextShadow::new(
+            to_skia_color(shadow.color),
+            (shadow.offset_x, shadow.offset_y),
+            shadow.blur_radius as f64,
+        ));
     }
     text_style
 }
