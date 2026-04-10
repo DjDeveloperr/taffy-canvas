@@ -45,6 +45,14 @@ enum TemplateTag {
     Image,
     Span,
     Link,
+    Strong,
+    Emphasis,
+    Underline,
+    Strike,
+    Superscript,
+    Subscript,
+    Small,
+    Mark,
     Break,
 }
 
@@ -235,6 +243,19 @@ impl TemplateNode {
                     message: "link nodes are only valid inside text".to_string(),
                 });
             }
+            TemplateTag::Strong
+            | TemplateTag::Emphasis
+            | TemplateTag::Underline
+            | TemplateTag::Strike
+            | TemplateTag::Superscript
+            | TemplateTag::Subscript
+            | TemplateTag::Small
+            | TemplateTag::Mark => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: tag_name(self.tag).to_string(),
+                    message: "semantic inline nodes are only valid inside text".to_string(),
+                });
+            }
             TemplateTag::Break => {
                 return Err(TaffyCanvasError::InvalidNode {
                     node: "br".to_string(),
@@ -376,9 +397,40 @@ impl TemplateNode {
         inherited_href: Option<&str>,
     ) -> Result<(String, Vec<InlineFragment>)> {
         if !matches!(self.tag, TemplateTag::Span | TemplateTag::Link) {
+            if !matches!(
+                self.tag,
+                TemplateTag::Strong
+                    | TemplateTag::Emphasis
+                    | TemplateTag::Underline
+                    | TemplateTag::Strike
+                    | TemplateTag::Superscript
+                    | TemplateTag::Subscript
+                    | TemplateTag::Small
+                    | TemplateTag::Mark
+            ) {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: tag_name(self.tag).to_string(),
+                    message: "only inline text nodes can be instantiated inline".to_string(),
+                });
+            }
+        }
+
+        if !matches!(
+            self.tag,
+            TemplateTag::Span
+                | TemplateTag::Link
+                | TemplateTag::Strong
+                | TemplateTag::Emphasis
+                | TemplateTag::Underline
+                | TemplateTag::Strike
+                | TemplateTag::Superscript
+                | TemplateTag::Subscript
+                | TemplateTag::Small
+                | TemplateTag::Mark
+        ) {
             return Err(TaffyCanvasError::InvalidNode {
                 node: tag_name(self.tag).to_string(),
-                message: "only span and a nodes can be instantiated inline".to_string(),
+                message: "only inline text nodes can be instantiated inline".to_string(),
             });
         }
 
@@ -475,6 +527,9 @@ fn merge_inline_style(
 ) -> StyleSpec {
     let mut merged = inherited.clone();
     let is_link = tag == TemplateTag::Link || attrs.contains_key("href");
+
+    apply_semantic_inline_style(tag, &mut merged);
+
     if attrs.contains_key("color") {
         merged.color = parsed.color;
     } else if is_link {
@@ -531,6 +586,50 @@ fn merge_inline_style(
     merged
 }
 
+fn apply_semantic_inline_style(tag: TemplateTag, style: &mut StyleSpec) {
+    match tag {
+        TemplateTag::Strong => {
+            style.font.weight = style.font.weight.max(700);
+        }
+        TemplateTag::Emphasis => {
+            style.font.style = crate::document::FontSlant::Italic;
+        }
+        TemplateTag::Underline => {
+            style.text_decoration.underline = true;
+        }
+        TemplateTag::Strike => {
+            style.text_decoration.line_through = true;
+        }
+        TemplateTag::Superscript => {
+            style.font.size = ((style.font.size as f32) * 0.75).round().max(1.0) as u32;
+            style.baseline_shift -= style.font.size as f32 * 0.35;
+        }
+        TemplateTag::Subscript => {
+            style.font.size = ((style.font.size as f32) * 0.75).round().max(1.0) as u32;
+            style.baseline_shift += style.font.size as f32 * 0.20;
+        }
+        TemplateTag::Small => {
+            style.font.size = ((style.font.size as f32) * 0.85).round().max(1.0) as u32;
+        }
+        TemplateTag::Mark => {
+            if style.background.is_none() {
+                style.background = Some(Color {
+                    r: 255,
+                    g: 240,
+                    b: 120,
+                    a: 255,
+                });
+            }
+        }
+        TemplateTag::View
+        | TemplateTag::Text
+        | TemplateTag::Image
+        | TemplateTag::Span
+        | TemplateTag::Link
+        | TemplateTag::Break => {}
+    }
+}
+
 fn push_inline_text(node: &mut TemplateNode, decoded: &str) {
     match node.tag {
         TemplateTag::Text | TemplateTag::Span => {
@@ -546,6 +645,19 @@ fn push_inline_text(node: &mut TemplateNode, decoded: &str) {
             }
         }
         TemplateTag::View | TemplateTag::Image | TemplateTag::Break => {}
+        TemplateTag::Strong
+        | TemplateTag::Emphasis
+        | TemplateTag::Underline
+        | TemplateTag::Strike
+        | TemplateTag::Superscript
+        | TemplateTag::Subscript
+        | TemplateTag::Small
+        | TemplateTag::Mark => {
+            if !decoded.trim().is_empty() {
+                node.inline
+                    .push(TemplateInline::Text(CompiledString::compile(decoded)));
+            }
+        }
     }
 }
 
@@ -557,6 +669,19 @@ fn attach_node(
     if let Some(parent) = stack.last_mut() {
         match (parent.tag, node.tag) {
             (TemplateTag::Text | TemplateTag::Span, TemplateTag::Span) => {
+                parent.inline.push(TemplateInline::Span(node));
+            }
+            (
+                TemplateTag::Text | TemplateTag::Span | TemplateTag::Link,
+                TemplateTag::Strong
+                | TemplateTag::Emphasis
+                | TemplateTag::Underline
+                | TemplateTag::Strike
+                | TemplateTag::Superscript
+                | TemplateTag::Subscript
+                | TemplateTag::Small
+                | TemplateTag::Mark,
+            ) => {
                 parent.inline.push(TemplateInline::Span(node));
             }
             (TemplateTag::Text | TemplateTag::Span | TemplateTag::Link, TemplateTag::Link) => {
@@ -599,11 +724,19 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
         b"image" => TemplateTag::Image,
         b"span" => TemplateTag::Span,
         b"a" => TemplateTag::Link,
+        b"strong" => TemplateTag::Strong,
+        b"em" => TemplateTag::Emphasis,
+        b"u" => TemplateTag::Underline,
+        b"s" | b"strike" => TemplateTag::Strike,
+        b"sup" => TemplateTag::Superscript,
+        b"sub" => TemplateTag::Subscript,
+        b"small" => TemplateTag::Small,
+        b"mark" => TemplateTag::Mark,
         b"br" => TemplateTag::Break,
         other => {
             return Err(TaffyCanvasError::InvalidNode {
                 node: String::from_utf8_lossy(other).into_owned(),
-                message: "supported nodes are view, text, image, span, a, br".to_string(),
+                message: "supported nodes are view, text, image, span, a, strong, em, u, s, strike, sup, sub, small, mark, br".to_string(),
             });
         }
     };
@@ -641,6 +774,14 @@ fn tag_name(tag: TemplateTag) -> &'static str {
         TemplateTag::Image => "image",
         TemplateTag::Span => "span",
         TemplateTag::Link => "a",
+        TemplateTag::Strong => "strong",
+        TemplateTag::Emphasis => "em",
+        TemplateTag::Underline => "u",
+        TemplateTag::Strike => "s",
+        TemplateTag::Superscript => "sup",
+        TemplateTag::Subscript => "sub",
+        TemplateTag::Small => "small",
+        TemplateTag::Mark => "mark",
         TemplateTag::Break => "br",
     }
 }

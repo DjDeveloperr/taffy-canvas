@@ -209,6 +209,69 @@ fn template_supports_inline_links_with_default_visual_style() {
 }
 
 #[test]
+fn template_supports_semantic_inline_tags() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="120">
+          <text color="#ffffff"><strong>Bold</strong><em>Italic</em><u>Under</u><s>Strike</s><sup>2</sup><sub>n</sub><small>small</small><mark>mark</mark></text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let taffy_canvas_core::NodeKind::Text { value, fragments } = &document.root.children[0].kind
+    else {
+        panic!("expected text node");
+    };
+
+    assert_eq!(value, "BoldItalicUnderStrike2nsmallmark");
+    let InlineFragment::Text(strong) = &fragments[0] else {
+        panic!("expected strong text run");
+    };
+    let InlineFragment::Text(emphasis) = &fragments[1] else {
+        panic!("expected emphasis text run");
+    };
+    let InlineFragment::Text(underline) = &fragments[2] else {
+        panic!("expected underline text run");
+    };
+    let InlineFragment::Text(strike) = &fragments[3] else {
+        panic!("expected strike text run");
+    };
+    let InlineFragment::Text(superscript) = &fragments[4] else {
+        panic!("expected superscript text run");
+    };
+    let InlineFragment::Text(subscript) = &fragments[5] else {
+        panic!("expected subscript text run");
+    };
+    let InlineFragment::Text(small) = &fragments[6] else {
+        panic!("expected small text run");
+    };
+    let InlineFragment::Text(mark) = &fragments[7] else {
+        panic!("expected mark text run");
+    };
+
+    assert!(strong.style.font.weight >= 700);
+    assert_eq!(emphasis.style.font.style, FontSlant::Italic);
+    assert!(underline.style.text_decoration.underline);
+    assert!(strike.style.text_decoration.line_through);
+    assert!(superscript.style.baseline_shift < 0.0);
+    assert!(subscript.style.baseline_shift > 0.0);
+    assert!(small.style.font.size < strong.style.font.size);
+    assert_eq!(
+        mark.style.background,
+        Some(Color {
+            r: 255,
+            g: 240,
+            b: 120,
+            a: 255
+        })
+    );
+}
+
+#[test]
 fn template_supports_line_breaks_and_inline_effects() {
     let template = Template::compile(
         r##"
@@ -752,6 +815,70 @@ fn layout_supports_per_side_padding_attributes() {
 }
 
 #[test]
+fn layout_supports_block_inline_axis_shorthands() {
+    let template = Template::compile(
+        r##"
+        <view width="140" height="100">
+          <view
+            width="40"
+            height="20"
+            position="absolute"
+            inset-inline="12 18"
+            inset-block="6 10"
+            padding-inline="3 5"
+            padding-block="7 9"
+            margin-inline="auto 4"
+            margin-block="2 auto"
+          />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let child = &document.root.children[0];
+
+    assert_eq!(
+        child.style.inset.left,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(12.0))
+    );
+    assert_eq!(
+        child.style.inset.right,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(18.0))
+    );
+    assert_eq!(
+        child.style.inset.top,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(6.0))
+    );
+    assert_eq!(
+        child.style.inset.bottom,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(10.0))
+    );
+    assert_eq!(child.style.padding.left.points(), Some(3.0));
+    assert_eq!(child.style.padding.right.points(), Some(5.0));
+    assert_eq!(child.style.padding.top.points(), Some(7.0));
+    assert_eq!(child.style.padding.bottom.points(), Some(9.0));
+    assert!(matches!(
+        child.style.margin.left,
+        taffy_canvas_core::LengthAutoValue::Auto
+    ));
+    assert_eq!(
+        child.style.margin.right,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(4.0))
+    );
+    assert_eq!(
+        child.style.margin.top,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(2.0))
+    );
+    assert!(matches!(
+        child.style.margin.bottom,
+        taffy_canvas_core::LengthAutoValue::Auto
+    ));
+}
+
+#[test]
 fn layout_supports_per_side_margin_attributes() {
     let template = Template::compile(
         r##"
@@ -771,6 +898,26 @@ fn layout_supports_per_side_margin_attributes() {
 
     assert_eq!(laid_out.root.children[0].layout.x, 0.0);
     assert_eq!(laid_out.root.children[1].layout.x, 20.0);
+}
+
+#[test]
+fn layout_supports_grid_start_end_attributes() {
+    let template = Template::compile(
+        r##"
+        <view width="100" height="80" display="grid" grid-template-columns="20 20 20" grid-template-rows="10 10 10">
+          <view id="placed" grid-column-start="2" grid-column-end="4" grid-row-start="2" grid-row-end="4" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let child = &document.root.children[0];
+
+    assert_eq!(child.style.grid_column.as_deref(), Some("2 / 4"));
+    assert_eq!(child.style.grid_row.as_deref(), Some("2 / 4"));
 }
 
 #[test]
@@ -1181,6 +1328,36 @@ fn prepared_template_reuses_bound_resources_and_renderer() {
 
     assert_eq!(output.width, 32);
     assert_eq!(output.height, 16);
+    assert!(!output.png_bytes.is_empty());
+}
+
+#[test]
+fn template_session_merges_base_params_and_overrides() {
+    let renderer = Renderer::new(2).expect("renderer");
+    let template = Template::compile(
+        r##"
+        <view width="48" height="20" background="#102030">
+          <text color="#ffffff">{{player.name}} {{player.hp}}</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+    let mut base = TemplateParams::new();
+    base.insert("player.name".to_string(), "Canvas".to_string());
+    base.insert("player.hp".to_string(), "42".to_string());
+
+    let session = renderer
+        .prepare(template, empty_assets())
+        .with_base_params(base);
+    let mut overrides = TemplateParams::new();
+    overrides.insert("player.hp".to_string(), "99".to_string());
+
+    let output = session
+        .render(&overrides, RenderOptions::default())
+        .expect("render succeeds");
+
+    assert_eq!(output.width, 48);
+    assert_eq!(output.height, 20);
     assert!(!output.png_bytes.is_empty());
 }
 

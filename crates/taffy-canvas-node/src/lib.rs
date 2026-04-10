@@ -1,4 +1,4 @@
-use std::{fs, sync::OnceLock};
+use std::{fs, path::Path, sync::OnceLock};
 
 use napi::{
     Error, Result, Status,
@@ -19,6 +19,20 @@ pub struct PreparedTemplateHandle {
     template: Template,
 }
 
+#[derive(Clone)]
+pub struct TemplateSessionHandle {
+    prepared: PreparedTemplateHandle,
+    base_params: TemplateParams,
+}
+
+#[napi(object)]
+pub struct ResourceSummary {
+    pub assets: u32,
+    pub fonts: u32,
+    pub decoded_images: u32,
+    pub prepared_images: u32,
+}
+
 #[napi]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -34,6 +48,13 @@ pub fn create_renderer(threads: Option<u32>) -> Result<External<Renderer>> {
 #[napi]
 pub fn create_resources() -> External<MemoryAssetProvider> {
     External::new(MemoryAssetProvider::default())
+}
+
+#[napi]
+pub fn create_resources_from_manifest(path: String) -> Result<External<MemoryAssetProvider>> {
+    let mut resources = MemoryAssetProvider::default();
+    load_manifest_into_resources(&mut resources, &path)?;
+    Ok(External::new(resources))
 }
 
 #[napi]
@@ -77,6 +98,24 @@ pub fn add_resource_font_from_file(
 }
 
 #[napi]
+pub fn load_resource_manifest(
+    resources: &mut External<MemoryAssetProvider>,
+    path: String,
+) -> Result<()> {
+    load_manifest_into_resources(resources, &path)
+}
+
+#[napi]
+pub fn inspect_resources(resources: &External<MemoryAssetProvider>) -> ResourceSummary {
+    ResourceSummary {
+        assets: resources.asset_count() as u32,
+        fonts: resources.font_count() as u32,
+        decoded_images: resources.decoded_image_count() as u32,
+        prepared_images: resources.prepared_image_count() as u32,
+    }
+}
+
+#[napi]
 pub fn compile_template(xml: String) -> Result<External<Template>> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
     Ok(External::new(template))
@@ -105,6 +144,30 @@ pub fn prepare_template_with_renderer(
         resources: resources.as_ref().clone(),
         template: template.as_ref().clone(),
     })
+}
+
+#[napi]
+pub fn create_template_session(
+    prepared: &External<PreparedTemplateHandle>,
+    base_params: Option<Value>,
+) -> Result<External<TemplateSessionHandle>> {
+    Ok(External::new(TemplateSessionHandle {
+        prepared: prepared.as_ref().clone(),
+        base_params: normalize_params(base_params)?,
+    }))
+}
+
+#[napi]
+pub fn extend_template_session(
+    session: &External<TemplateSessionHandle>,
+    params: Option<Value>,
+) -> Result<External<TemplateSessionHandle>> {
+    let mut base_params = session.base_params.clone();
+    base_params.extend(normalize_params(params)?);
+    Ok(External::new(TemplateSessionHandle {
+        prepared: session.prepared.clone(),
+        base_params,
+    }))
 }
 
 #[napi]
@@ -351,6 +414,47 @@ pub async fn render_prepared(
     Ok(Buffer::from(bytes))
 }
 
+#[napi]
+pub fn render_template_session_sync(
+    session: &External<TemplateSessionHandle>,
+    params: Option<Value>,
+    backend: Option<String>,
+) -> Result<Buffer> {
+    let merged = merge_template_params(&session.base_params, normalize_params(params)?);
+    render_with_template(
+        &session.prepared.renderer,
+        &session.prepared.template,
+        merged,
+        &session.prepared.resources,
+        backend,
+    )
+    .map(Buffer::from)
+}
+
+#[napi]
+pub async fn render_template_session(
+    session: &External<TemplateSessionHandle>,
+    params: Option<Value>,
+    backend: Option<String>,
+) -> Result<Buffer> {
+    let session = session.as_ref().clone();
+    let merged = merge_template_params(&session.base_params, normalize_params(params)?);
+
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        render_with_template(
+            &session.prepared.renderer,
+            &session.prepared.template,
+            merged,
+            &session.prepared.resources,
+            backend,
+        )
+    })
+    .await
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
+
+    Ok(Buffer::from(bytes))
+}
+
 fn render_with_template(
     renderer: &Renderer,
     template: &Template,
@@ -388,32 +492,104 @@ fn normalize_params(input: Option<Value>) -> Result<TemplateParams> {
     let Some(value) = input else {
         return Ok(TemplateParams::new());
     };
-
-    let object = value.as_object().ok_or_else(|| {
-        Error::new(
-            Status::InvalidArg,
-            "params must be a plain object".to_string(),
-        )
-    })?;
-
     let mut params = TemplateParams::new();
-    for (key, value) in object {
-        let rendered = match value {
-            Value::String(text) => text.clone(),
-            Value::Number(number) => number.to_string(),
-            Value::Bool(boolean) => boolean.to_string(),
-            Value::Null => String::new(),
-            other => {
-                return Err(Error::new(
-                    Status::InvalidArg,
-                    format!("template param `{key}` must be string/number/bool/null, got {other}"),
-                ));
+
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                flatten_param_value(&mut params, key, &value)?;
             }
-        };
-        params.insert(key.clone(), rendered);
+        }
+        other => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("params must be a plain object, got {other}"),
+            ));
+        }
     }
 
     Ok(params)
+}
+
+fn flatten_param_value(params: &mut TemplateParams, path: String, value: &Value) -> Result<()> {
+    match value {
+        Value::String(text) => {
+            params.insert(path, text.clone());
+            Ok(())
+        }
+        Value::Number(number) => {
+            params.insert(path, number.to_string());
+            Ok(())
+        }
+        Value::Bool(boolean) => {
+            params.insert(path, boolean.to_string());
+            Ok(())
+        }
+        Value::Null => {
+            params.insert(path, String::new());
+            Ok(())
+        }
+        Value::Object(object) => {
+            for (key, value) in object {
+                let child_path = format!("{path}.{key}");
+                flatten_param_value(params, child_path, value)?;
+            }
+            Ok(())
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                let child_path = format!("{path}.{index}");
+                flatten_param_value(params, child_path, item)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn merge_template_params(base: &TemplateParams, overrides: TemplateParams) -> TemplateParams {
+    let mut merged = base.clone();
+    merged.extend(overrides);
+    merged
+}
+
+fn load_manifest_into_resources(resources: &mut MemoryAssetProvider, path: &str) -> Result<()> {
+    let bytes = read_file_bytes(path)?;
+    let manifest: Value = serde_json::from_slice(&bytes)
+        .map_err(|error| Error::new(Status::InvalidArg, error.to_string()))?;
+    let root = Path::new(path)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default();
+
+    if let Some(assets) = manifest.get("assets").and_then(Value::as_object) {
+        for (key, value) in assets {
+            let relative = value.as_str().ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("manifest asset `{key}` must be a string path"),
+                )
+            })?;
+            let full_path = root.join(relative);
+            let full_path = full_path.to_string_lossy().into_owned();
+            resources.insert_asset(key.clone(), read_file_bytes(&full_path)?);
+        }
+    }
+
+    if let Some(fonts) = manifest.get("fonts").and_then(Value::as_object) {
+        for (family, value) in fonts {
+            let relative = value.as_str().ok_or_else(|| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("manifest font `{family}` must be a string path"),
+                )
+            })?;
+            let full_path = root.join(relative);
+            let full_path = full_path.to_string_lossy().into_owned();
+            resources.register_font(family.clone(), read_file_bytes(&full_path)?);
+        }
+    }
+
+    Ok(())
 }
 
 fn to_napi_error(error: impl std::fmt::Display) -> Error {

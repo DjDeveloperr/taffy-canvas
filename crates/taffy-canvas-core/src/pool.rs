@@ -26,6 +26,15 @@ where
     resources: R,
 }
 
+#[derive(Clone)]
+pub struct TemplateSession<R>
+where
+    R: ResourceProvider + Clone,
+{
+    prepared: PreparedTemplate<R>,
+    base_params: TemplateParams,
+}
+
 struct RendererInner {
     pool: rayon::ThreadPool,
 }
@@ -65,6 +74,19 @@ impl Renderer {
             resources,
         }
     }
+
+    pub fn session<R>(
+        &self,
+        template: Template,
+        resources: R,
+        base_params: TemplateParams,
+    ) -> TemplateSession<R>
+    where
+        R: ResourceProvider + Clone,
+    {
+        self.prepare(template, resources)
+            .with_base_params(base_params)
+    }
 }
 
 impl<R> PreparedTemplate<R>
@@ -86,6 +108,40 @@ where
 
     pub fn resources(&self) -> &R {
         &self.resources
+    }
+
+    pub fn with_base_params(self, base_params: TemplateParams) -> TemplateSession<R> {
+        TemplateSession {
+            prepared: self,
+            base_params,
+        }
+    }
+}
+
+impl<R> TemplateSession<R>
+where
+    R: ResourceProvider + Clone,
+{
+    pub fn render(
+        &self,
+        overrides: &TemplateParams,
+        options: RenderOptions,
+    ) -> Result<RenderOutput> {
+        let mut params = self.base_params.clone();
+        params.extend(
+            overrides
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+        self.prepared.render(&params, options)
+    }
+
+    pub fn prepared(&self) -> &PreparedTemplate<R> {
+        &self.prepared
+    }
+
+    pub fn base_params(&self) -> &TemplateParams {
+        &self.base_params
     }
 }
 

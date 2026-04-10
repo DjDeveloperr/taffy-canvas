@@ -1,4 +1,8 @@
-export type TemplateParamValue = string | number | boolean | null
+export type TemplateParamPrimitive = string | number | boolean | null
+export type TemplateParamValue =
+  | TemplateParamPrimitive
+  | TemplateParamValue[]
+  | { [key: string]: TemplateParamValue }
 export type TemplateParams = Record<string, TemplateParamValue>
 export type RenderBackend = 'auto' | 'cpu' | 'gpu'
 
@@ -6,11 +10,20 @@ export type Renderer = object
 export type Resources = object
 export type CompiledTemplate = object
 export type PreparedTemplate = object
+export type TemplateSession = object
+
+export interface ResourceSummary {
+  assets: number
+  fonts: number
+  decoded_images: number
+  prepared_images: number
+}
 
 export function version(): string
 
 export function createRenderer(threads?: number | null): Renderer
 export function createResources(): Resources
+export function createResourcesFromManifest(path: string): Resources
 export function addResourceAsset(resources: Resources, key: string, bytes: Buffer): void
 export function addResourceFont(resources: Resources, family: string, bytes: Buffer): void
 export function addResourceAssetFromFile(
@@ -23,6 +36,8 @@ export function addResourceFontFromFile(
   family: string,
   path: string
 ): void
+export function loadResourceManifest(resources: Resources, path: string): void
+export function inspectResources(resources: Resources): ResourceSummary
 
 export function compileTemplate(xml: string): CompiledTemplate
 export function prepareTemplate(
@@ -34,6 +49,14 @@ export function prepareTemplateWithRenderer(
   resources: Resources,
   template: CompiledTemplate
 ): PreparedTemplate
+export function createTemplateSession(
+  prepared: PreparedTemplate,
+  baseParams?: TemplateParams | null
+): TemplateSession
+export function extendTemplateSession(
+  session: TemplateSession,
+  params?: TemplateParams | null
+): TemplateSession
 
 export function renderXmlSync(
   xml: string,
@@ -105,6 +128,17 @@ export function renderPreparedSync(
 ): Buffer
 export function renderPrepared(
   prepared: PreparedTemplate,
+  params?: TemplateParams | null,
+  backend?: RenderBackend | null
+): Promise<Buffer>
+
+export function renderTemplateSessionSync(
+  session: TemplateSession,
+  params?: TemplateParams | null,
+  backend?: RenderBackend | null
+): Buffer
+export function renderTemplateSession(
+  session: TemplateSession,
   params?: TemplateParams | null,
   backend?: RenderBackend | null
 ): Promise<Buffer>

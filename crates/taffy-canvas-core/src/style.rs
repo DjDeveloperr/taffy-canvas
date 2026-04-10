@@ -108,6 +108,30 @@ pub fn style_from_attrs(
             "grid-area" => style.grid_area = Some(value.trim().to_string()),
             "grid-column" => style.grid_column = Some(value.trim().to_string()),
             "grid-row" => style.grid_row = Some(value.trim().to_string()),
+            "grid-column-start" => {
+                style.grid_column = merge_grid_placement_parts(
+                    Some(value.trim()),
+                    grid_end_part(style.grid_column.as_deref()),
+                )
+            }
+            "grid-column-end" => {
+                style.grid_column = merge_grid_placement_parts(
+                    grid_start_part(style.grid_column.as_deref()),
+                    Some(value.trim()),
+                )
+            }
+            "grid-row-start" => {
+                style.grid_row = merge_grid_placement_parts(
+                    Some(value.trim()),
+                    grid_end_part(style.grid_row.as_deref()),
+                )
+            }
+            "grid-row-end" => {
+                style.grid_row = merge_grid_placement_parts(
+                    grid_start_part(style.grid_row.as_deref()),
+                    Some(value.trim()),
+                )
+            }
             "gap" => style.gap = Some(parse_length(value, key)?),
             "row-gap" => style.row_gap = Some(parse_length(value, key)?),
             "column-gap" => style.column_gap = Some(parse_length(value, key)?),
@@ -127,16 +151,46 @@ pub fn style_from_attrs(
                 style.max_height = Some(height);
             }
             "padding" => style.padding = parse_length_insets(value, key)?,
+            "padding-block" => {
+                let (start, end) = parse_axis_pair(value, key)?;
+                style.padding.top = start;
+                style.padding.bottom = end;
+            }
+            "padding-inline" => {
+                let (start, end) = parse_axis_pair(value, key)?;
+                style.padding.left = start;
+                style.padding.right = end;
+            }
             "padding-top" => style.padding.top = parse_length(value, key)?,
             "padding-right" => style.padding.right = parse_length(value, key)?,
             "padding-bottom" => style.padding.bottom = parse_length(value, key)?,
             "padding-left" => style.padding.left = parse_length(value, key)?,
             "margin" => style.margin = parse_length_auto_insets(value, key)?,
+            "margin-block" => {
+                let (start, end) = parse_axis_auto_pair(value, key)?;
+                style.margin.top = start;
+                style.margin.bottom = end;
+            }
+            "margin-inline" => {
+                let (start, end) = parse_axis_auto_pair(value, key)?;
+                style.margin.left = start;
+                style.margin.right = end;
+            }
             "margin-top" => style.margin.top = parse_length_auto(value, key)?,
             "margin-right" => style.margin.right = parse_length_auto(value, key)?,
             "margin-bottom" => style.margin.bottom = parse_length_auto(value, key)?,
             "margin-left" => style.margin.left = parse_length_auto(value, key)?,
             "inset" => style.inset = parse_length_auto_insets(value, key)?,
+            "inset-block" => {
+                let (start, end) = parse_axis_auto_pair(value, key)?;
+                style.inset.top = start;
+                style.inset.bottom = end;
+            }
+            "inset-inline" => {
+                let (start, end) = parse_axis_auto_pair(value, key)?;
+                style.inset.left = start;
+                style.inset.right = end;
+            }
             "left" => style.inset.left = parse_length_auto(value, key)?,
             "right" => style.inset.right = parse_length_auto(value, key)?,
             "top" => style.inset.top = parse_length_auto(value, key)?,
@@ -313,6 +367,45 @@ fn parse_line_height(value: &str, attribute: &str) -> Result<Option<LineHeightVa
     )?)))
 }
 
+fn parse_axis_pair(value: &str, attribute: &str) -> Result<(LengthValue, LengthValue)> {
+    let parts = value.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        [single] => {
+            let parsed = parse_length(single, attribute)?;
+            Ok((parsed, parsed))
+        }
+        [start, end] => Ok((
+            parse_length(start, attribute)?,
+            parse_length(end, attribute)?,
+        )),
+        _ => Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        }),
+    }
+}
+
+fn parse_axis_auto_pair(
+    value: &str,
+    attribute: &str,
+) -> Result<(LengthAutoValue, LengthAutoValue)> {
+    let parts = value.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        [single] => {
+            let parsed = parse_length_auto(single, attribute)?;
+            Ok((parsed, parsed))
+        }
+        [start, end] => Ok((
+            parse_length_auto(start, attribute)?,
+            parse_length_auto(end, attribute)?,
+        )),
+        _ => Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        }),
+    }
+}
+
 fn parse_overflow_mode(value: &str, attribute: &str) -> Result<OverflowMode> {
     match value.trim() {
         "visible" => Ok(OverflowMode::Visible),
@@ -346,6 +439,34 @@ fn parse_text_shadow(value: &str, attribute: &str) -> Result<TextShadowSpec> {
         blur_radius: parse_number(parts[2], attribute)?.max(0.0),
         color,
     })
+}
+
+fn grid_start_part(value: Option<&str>) -> Option<&str> {
+    value
+        .and_then(|placement| placement.split_once('/').map(|(start, _)| start.trim()))
+        .or(value.map(str::trim))
+        .filter(|part| !part.is_empty())
+}
+
+fn grid_end_part(value: Option<&str>) -> Option<&str> {
+    value.and_then(|placement| {
+        placement
+            .split_once('/')
+            .map(|(_, end)| end.trim())
+            .filter(|part| !part.is_empty())
+    })
+}
+
+fn merge_grid_placement_parts(start: Option<&str>, end: Option<&str>) -> Option<String> {
+    match (
+        start.filter(|part| !part.is_empty()),
+        end.filter(|part| !part.is_empty()),
+    ) {
+        (Some(start), Some(end)) => Some(format!("{start} / {end}")),
+        (Some(start), None) => Some(start.to_string()),
+        (None, Some(end)) => Some(format!("auto / {end}")),
+        (None, None) => None,
+    }
 }
 
 fn parse_length_insets(value: &str, attribute: &str) -> Result<Insets<LengthValue>> {

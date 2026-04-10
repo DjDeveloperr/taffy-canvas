@@ -22,7 +22,7 @@ pub use document::{
 pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;
 pub use parser::parse_template;
-pub use pool::{PreparedTemplate, Renderer};
+pub use pool::{PreparedTemplate, Renderer, TemplateSession};
 pub use render::{
     RenderBackend, RenderBackendPreference, RenderOptions, RenderOutput, render_document,
     render_template,

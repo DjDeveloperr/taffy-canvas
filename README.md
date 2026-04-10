@@ -21,12 +21,14 @@ Implemented today:
 - specialized XML parsing for `view`, `text`, and `image`
 - template compilation plus `{{param}}` substitution
 - inline rich text spans inside `text` via nested `<span>` nodes
+- semantic inline tags inside `text`: `<strong>`, `<em>`, `<u>`, `<s>`, `<sup>`, `<sub>`, `<small>`, and `<mark>`
 - inline images inside `text` using Skia paragraph placeholders
 - Skia-backed text measurement used for both layout and paint
 - CPU rendering path
 - GPU rendering on macOS via Metal and on Linux/Windows via headless GL, with CPU fallback through `RenderBackendPreference::Auto`
 - reusable renderer handles for parallel async rendering
 - reusable prepared-template handles for compile-once/resource-once/render-many flows
+- reusable template-session handles for base-params-once/render-many flows
 - reusable resource handles for image assets and custom font aliases
 - filesystem-backed resource loading in the Rust core
 - decoded image caching inside reusable resource handles
@@ -59,8 +61,9 @@ Implemented today:
   - absolute lengths and percentages for width, height, min/max sizes, insets, padding, margin, grid tracks, and flex basis
   - auto margins
   - `gap`, `row-gap`, `column-gap`
-  - per-side padding and margin
-  - `inset` shorthand
+  - per-side, block-axis, and inline-axis padding/margin
+  - `inset`, `inset-block`, and `inset-inline`
+  - grid line `*-start` and `*-end` placement attributes
 - rendering support for:
   - backgrounds
   - borders and `border` shorthand
@@ -116,10 +119,10 @@ Rules:
 - root width and height are required and must be absolute lengths
 - template params use `{{name}}`
 - `text` can use inner text or a `value` attribute
-- `text` can contain nested `<span>` and `<a>` nodes for inline styling, inline `<image>` nodes, and `<br />` line breaks
+- `text` can contain nested `<span>`, `<a>`, `<strong>`, `<em>`, `<u>`, `<s>`, `<sup>`, `<sub>`, `<small>`, and `<mark>` nodes for inline styling, inline `<image>` nodes, and `<br />` line breaks
 - `image` requires `src`
 - inline `image` nodes require explicit `width` and `height`
-- layout/style attributes include grid tracks, named areas, and placement plus shorthands such as `size`, `inset`, `border`, `flex`, `grid-area`, `grid-template`, `place-items`, and `place-self`
+- layout/style attributes include grid tracks, named areas, start/end placement, and shorthands such as `size`, `inset`, `inset-block`, `inset-inline`, `padding-block`, `padding-inline`, `margin-block`, `margin-inline`, `border`, `flex`, `grid-area`, `grid-template`, `place-items`, and `place-self`
 - text styling attributes include `font-style`, `line-height`, `letter-spacing`, `word-spacing`, `baseline-shift`, `background`, `text-shadow`, and `text-decoration*`
 - overflow supports `visible`, `hidden`, and `clip`, including `overflow-x` and `overflow-y`
 
@@ -205,27 +208,55 @@ let output = prepared.render(
 # Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
 ```
 
+Using a template session with reusable base params:
+
+```rust
+use taffy_canvas_core::{RenderOptions, Renderer, Template, TemplateParams};
+
+let template = Template::compile(
+    r##"<view width="240" height="80"><text>{{player.name}} {{player.hp}}</text></view>"##,
+)?;
+let mut base = TemplateParams::new();
+base.insert("player.name".to_string(), "Canvas".to_string());
+base.insert("player.hp".to_string(), "42".to_string());
+
+let session = Renderer::default()
+    .prepare(template, taffy_canvas_core::MemoryAssetProvider::default())
+    .with_base_params(base);
+
+let mut frame = TemplateParams::new();
+frame.insert("player.hp".to_string(), "99".to_string());
+let png = session.render(&frame, RenderOptions::default())?;
+# Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
+```
+
 ## Node Usage
 
 The Node binding currently exposes:
 
 - `createRenderer(threads?)`
 - `createResources()`
+- `createResourcesFromManifest(path)`
 - `addResourceAsset(resources, key, bytes)`
 - `addResourceFont(resources, family, bytes)`
 - `addResourceAssetFromFile(resources, key, path)`
 - `addResourceFontFromFile(resources, family, path)`
+- `loadResourceManifest(resources, path)`
+- `inspectResources(resources)`
 - `compileTemplate(xml)`
 - `prepareTemplate(resources, template)`
 - `prepareTemplateWithRenderer(renderer, resources, template)`
+- `createTemplateSession(prepared, baseParams?)`
+- `extendTemplateSession(session, params?)`
 - `renderXml()` / `renderXmlSync()`
 - `renderCompiled()` / `renderCompiledSync()`
 - `renderWithRenderer()` / `renderWithRendererSync()`
 - `renderCompiledWithResources()` / `renderCompiledWithResourcesSync()`
 - `renderWithRendererAndResources()` / `renderWithRendererAndResourcesSync()`
 - `renderPrepared()` / `renderPreparedSync()`
+- `renderTemplateSession()` / `renderTemplateSessionSync()`
 
-The same XML surface is available from Node, including inline text spans/links, inline images, named grid areas, and reusable image/font resources.
+The same XML surface is available from Node, including semantic inline tags, inline images, named grid areas, manifest-based resource loading, and reusable image/font resources.
 
 All render entrypoints accept an optional backend string:
 
@@ -252,6 +283,27 @@ const prepared = prepareTemplateWithRenderer(renderer, resources, template);
 
 const png = await renderPrepared(prepared, {
   name: "Canvas",
+}, "auto");
+```
+
+Nested data binding and manifest-based resources:
+
+```js
+const resources = createResourcesFromManifest("./assets/resources.json");
+const template = compileTemplate(`
+  <view width="320" height="180" background="#101820">
+    <text color="#ffffff">{{player.name}} {{stats.hp}}</text>
+    <image src="avatar" width="64" height="64" fit="cover" />
+  </view>
+`);
+const prepared = prepareTemplate(resources, template);
+const session = createTemplateSession(prepared, {
+  player: { name: "Canvas" },
+  stats: { hp: 42 }
+});
+
+const png = await renderTemplateSession(session, {
+  stats: { hp: 99 }
 }, "auto");
 ```
 
@@ -317,11 +369,4 @@ CI is defined in [`ci.yml`](/Users/dj/Developer/taffy-canvas/.github/workflows/c
 
 - XML parsing is specialized for this project rather than trying to be a generic DOM layer.
 - Rendering supports CPU everywhere plus GPU on macOS (Metal) and Linux/Windows (headless GL).
-- Renderer/resource/template handles are designed so JS can compile once, load resources once, and issue many parallel async renders.
-
-## Near-Term Roadmap
-
-- richer text semantics on top of the current span + inline-image flow
-- broader style coverage
-- broader asset/resource abstractions on the Node side beyond file-to-memory helpers
-- higher-level templating utilities for HUD data binding beyond prepared templates
+- Renderer/resource/template/session handles are designed so JS can compile once, load resources once, bind base HUD data once, and issue many parallel async renders.
