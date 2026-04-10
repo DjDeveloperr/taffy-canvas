@@ -4,7 +4,7 @@
   "description": "Node.js bindings for Taffy Canvas, a Skia + Taffy server-side image renderer.",
   "main": "index.js",
   "types": "index.d.ts",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DjDeveloperr/taffy-canvas.git",

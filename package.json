@@ -1,0 +1,23 @@
+{
+  "name": "taffy-canvas-workspace",
+  "private": true,
+  "license": "Apache-2.0",
+  "workspaces": [
+    "crates/taffy-canvas-node",
+    "crates/taffy-canvas-node/npm/*"
+  ],
+  "scripts": {
+    "build": "cargo build --workspace && npm run build:node",
+    "build:rust": "cargo build --workspace",
+    "build:node": "npm --workspace crates/taffy-canvas-node run build",
+    "check": "cargo check --workspace --all-targets",
+    "fmt": "cargo fmt --all",
+    "test": "cargo test --workspace && npm run smoke",
+    "test:rust": "cargo test --workspace",
+    "smoke": "npm --workspace crates/taffy-canvas-node run test:smoke",
+    "bench": "cargo bench -p taffy-canvas-core --bench render -- --sample-size 10",
+    "pack": "npm --workspace crates/taffy-canvas-node run pack:current",
+    "sync:versions": "npm --workspace crates/taffy-canvas-node run sync:versions",
+    "ci": "npm run fmt && npm run check && npm run test"
+  }
+}

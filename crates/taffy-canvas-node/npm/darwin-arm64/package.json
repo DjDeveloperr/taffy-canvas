@@ -11,7 +11,7 @@
   "files": [
     "taffy-canvas.darwin-arm64.node"
   ],
-  "license": "MIT",
+  "license": "Apache-2.0",
   "peerDependencies": {
     "taffy-canvas": "0.1.0"
   },
