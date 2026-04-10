@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use rayon::{prelude::*, ThreadPool, ThreadPoolBuilder};
+use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
 
 use crate::{
-    asset::AssetProvider,
-    render::{render_template, RenderOptions, RenderOutput},
     Template, TemplateParams,
+    asset::AssetProvider,
+    render::{RenderOptions, RenderOutput, render_template},
 };
 
 #[derive(Clone)]
@@ -19,7 +19,9 @@ impl RendererPool {
             .num_threads(threads.max(1))
             .build()
             .map_err(|error| crate::TaffyCanvasError::Render(error.to_string()))?;
-        Ok(Self { pool: Arc::new(pool) })
+        Ok(Self {
+            pool: Arc::new(pool),
+        })
     }
 
     pub fn render_many(

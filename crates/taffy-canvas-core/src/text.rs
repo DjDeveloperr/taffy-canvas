@@ -18,7 +18,10 @@ pub struct FixedTextMeasurer {
 
 impl Default for FixedTextMeasurer {
     fn default() -> Self {
-        Self { char_width: 8.0, line_height: 16.0 }
+        Self {
+            char_width: 8.0,
+            line_height: 16.0,
+        }
     }
 }
 
@@ -32,6 +35,9 @@ impl TextMeasurer for FixedTextMeasurer {
         } else {
             1.0
         };
-        TextMetrics { width, height: self.line_height * font_scale * lines }
+        TextMetrics {
+            width,
+            height: self.line_height * font_scale * lines,
+        }
     }
 }

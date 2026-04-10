@@ -1,22 +1,21 @@
 use std::collections::BTreeMap;
 
 use quick_xml::{
-    events::{attributes::Attribute, BytesStart, Event},
     Reader,
+    events::{BytesStart, Event, attributes::Attribute},
 };
 
 use crate::{
+    Result,
     document::{Document, Node, NodeKind},
     error::TaffyCanvasError,
     style::style_from_attrs,
-    Result,
 };
 
 pub type TemplateParams = BTreeMap<String, String>;
 
 #[derive(Clone, Debug)]
 pub struct Template {
-    pub(crate) source: String,
     root: TemplateNode,
 }
 
@@ -91,9 +90,9 @@ impl Template {
                     }
                 }
                 Ok(Event::End(_)) => {
-                    let node = stack
-                        .pop()
-                        .ok_or_else(|| TaffyCanvasError::Xml("unexpected closing tag".to_string()))?;
+                    let node = stack.pop().ok_or_else(|| {
+                        TaffyCanvasError::Xml("unexpected closing tag".to_string())
+                    })?;
                     if let Some(parent) = stack.last_mut() {
                         parent.children.push(node);
                     } else if root.is_none() {
@@ -103,7 +102,10 @@ impl Template {
                     }
                 }
                 Ok(Event::Eof) => break,
-                Ok(Event::Decl(_)) | Ok(Event::Comment(_)) | Ok(Event::PI(_)) | Ok(Event::DocType(_)) => {}
+                Ok(Event::Decl(_))
+                | Ok(Event::Comment(_))
+                | Ok(Event::PI(_))
+                | Ok(Event::DocType(_)) => {}
                 Err(error) => return Err(TaffyCanvasError::Xml(error.to_string())),
                 _ => {}
             }
@@ -122,21 +124,31 @@ impl Template {
             });
         }
 
-        Ok(Self { source: source.to_string(), root })
+        Ok(Self { root })
     }
 
     pub fn instantiate(&self, params: &TemplateParams) -> Result<Document> {
         let root = self.root.instantiate(params)?;
-        let width = root.style.width.ok_or_else(|| TaffyCanvasError::InvalidAttribute {
-            attribute: "width".to_string(),
-            message: "root view must declare width".to_string(),
-        })?;
-        let height = root.style.height.ok_or_else(|| TaffyCanvasError::InvalidAttribute {
-            attribute: "height".to_string(),
-            message: "root view must declare height".to_string(),
-        })?;
+        let width = root
+            .style
+            .width
+            .ok_or_else(|| TaffyCanvasError::InvalidAttribute {
+                attribute: "width".to_string(),
+                message: "root view must declare width".to_string(),
+            })?;
+        let height = root
+            .style
+            .height
+            .ok_or_else(|| TaffyCanvasError::InvalidAttribute {
+                attribute: "height".to_string(),
+                message: "root view must declare height".to_string(),
+            })?;
 
-        Ok(Document { width: width as u32, height: height as u32, root })
+        Ok(Document {
+            width: width as u32,
+            height: height as u32,
+            root,
+        })
     }
 }
 
@@ -170,15 +182,23 @@ impl TemplateNode {
                 NodeKind::Text { value }
             }
             TemplateTag::Image => {
-                let src = evaluated_attrs.get("src").cloned().ok_or_else(|| TaffyCanvasError::InvalidAttribute {
-                    attribute: "src".to_string(),
-                    message: "image nodes require src".to_string(),
+                let src = evaluated_attrs.get("src").cloned().ok_or_else(|| {
+                    TaffyCanvasError::InvalidAttribute {
+                        attribute: "src".to_string(),
+                        message: "image nodes require src".to_string(),
+                    }
                 })?;
                 NodeKind::Image { src }
             }
         };
 
-        Ok(Node { id, kind, style, metadata, children })
+        Ok(Node {
+            id,
+            kind,
+            style,
+            metadata,
+            children,
+        })
     }
 }
 
@@ -252,7 +272,7 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
             return Err(TaffyCanvasError::InvalidNode {
                 node: String::from_utf8_lossy(other).into_owned(),
                 message: "supported nodes are view, text, image".to_string(),
-            })
+            });
         }
     };
 
@@ -263,7 +283,12 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
         attrs.insert(key, CompiledString::compile(&value));
     }
 
-    Ok(TemplateNode { tag, attrs, text: None, children: Vec::new() })
+    Ok(TemplateNode {
+        tag,
+        attrs,
+        text: None,
+        children: Vec::new(),
+    })
 }
 
 fn parse_attr(attr: Attribute<'_>) -> Result<(String, String)> {

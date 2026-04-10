@@ -1,16 +1,19 @@
 use skia_safe::{
-    textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign as SkTextAlign, TextStyle},
-    Color as SkColor, Data, EncodedImageFormat, FontMgr, Image, ImageInfo, Paint, PaintStyle, RRect, Rect, SamplingOptions, Surface,
+    Color as SkColor, Data, EncodedImageFormat, FontMgr, Image, ImageInfo, Paint, PaintStyle,
+    RRect, Rect, SamplingOptions, surfaces,
+    textlayout::{
+        FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign as SkTextAlign, TextStyle,
+    },
 };
 
 use crate::{
+    Result,
     asset::AssetProvider,
     document::{Color, ImageFit, LayoutNode, LayoutNodeKind},
     error::TaffyCanvasError,
     layout::layout_document,
     template::{Template, TemplateParams},
     text::{FixedTextMeasurer, TextMeasurer},
-    Result,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -34,7 +37,7 @@ pub fn render_document(
     _options: RenderOptions,
 ) -> Result<RenderOutput> {
     let layout = layout_document(document, measurer)?;
-    let mut surface = Surface::new_raster_n32_premul((layout.width as i32, layout.height as i32))
+    let mut surface = surfaces::raster_n32_premul((layout.width as i32, layout.height as i32))
         .ok_or_else(|| TaffyCanvasError::Render("failed to create raster surface".to_string()))?;
     let canvas = surface.canvas();
     canvas.clear(SkColor::TRANSPARENT);
@@ -51,10 +54,18 @@ pub fn render_document(
     let info = ImageInfo::new_n32_premul((layout.width as i32, layout.height as i32), None);
     let mut pixels_rgba = vec![0u8; layout.width as usize * layout.height as usize * 4];
     if !surface.read_pixels(&info, &mut pixels_rgba, layout.width as usize * 4, (0, 0)) {
-        return Err(TaffyCanvasError::Render("failed to read pixels".to_string()));
+        return Err(TaffyCanvasError::Render(
+            "failed to read pixels".to_string(),
+        ));
     }
 
-    Ok(RenderOutput { width: layout.width, height: layout.height, png_bytes, pixels_rgba, layout })
+    Ok(RenderOutput {
+        width: layout.width,
+        height: layout.height,
+        png_bytes,
+        pixels_rgba,
+        layout,
+    })
 }
 
 pub fn render_template(
@@ -68,7 +79,11 @@ pub fn render_template(
     render_document(&document, &measurer, assets, options)
 }
 
-fn draw_node(canvas: &skia_safe::Canvas, node: &LayoutNode, assets: &dyn AssetProvider) -> Result<()> {
+fn draw_node(
+    canvas: &skia_safe::Canvas,
+    node: &LayoutNode,
+    assets: &dyn AssetProvider,
+) -> Result<()> {
     draw_box(canvas, node);
 
     match &node.kind {
@@ -84,7 +99,12 @@ fn draw_node(canvas: &skia_safe::Canvas, node: &LayoutNode, assets: &dyn AssetPr
 }
 
 fn draw_box(canvas: &skia_safe::Canvas, node: &LayoutNode) {
-    let rect = Rect::from_xywh(node.layout.x, node.layout.y, node.layout.width, node.layout.height);
+    let rect = Rect::from_xywh(
+        node.layout.x,
+        node.layout.y,
+        node.layout.width,
+        node.layout.height,
+    );
     let rrect = if node.style.border_radius > 0.0 {
         RRect::new_rect_xy(rect, node.style.border_radius, node.style.border_radius)
     } else {
@@ -147,7 +167,12 @@ fn draw_image(
     let bytes = assets.load(src)?;
     let image = Image::from_encoded(Data::new_copy(&bytes))
         .ok_or_else(|| TaffyCanvasError::Render(format!("failed to decode image `{src}`")))?;
-    let rect = Rect::from_xywh(node.layout.x, node.layout.y, node.layout.width, node.layout.height);
+    let rect = Rect::from_xywh(
+        node.layout.x,
+        node.layout.y,
+        node.layout.width,
+        node.layout.height,
+    );
     let mut paint = Paint::default();
     paint.set_anti_alias(true);
     let sampling = SamplingOptions::default();

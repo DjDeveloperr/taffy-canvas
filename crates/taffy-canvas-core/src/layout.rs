@@ -1,13 +1,19 @@
 use taffy::{
-    prelude::{AlignContent, AlignItems, AvailableSpace, Dimension, FlexDirection, JustifyContent, LengthPercentage, LengthPercentageAuto, Rect, Size, Style, TaffyTree},
     NodeId,
+    prelude::{
+        AlignContent, AlignItems, AvailableSpace, Dimension, FlexDirection, JustifyContent,
+        LengthPercentage, LengthPercentageAuto, Rect, Size, Style, TaffyTree,
+    },
 };
 
 use crate::{
-    document::{Document, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node, NodeKind, PositionKind, RenderedDocument, StyleSpec},
+    Result,
+    document::{
+        Document, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node, NodeKind, PositionKind,
+        RenderedDocument, StyleSpec,
+    },
     error::TaffyCanvasError,
     text::TextMetrics,
-    Result,
 };
 
 pub use crate::text::{FixedTextMeasurer, TextMeasurer};
@@ -18,7 +24,10 @@ struct LayoutContext {
     style: StyleSpec,
 }
 
-pub fn layout_document(document: &Document, measurer: &dyn TextMeasurer) -> Result<RenderedDocument> {
+pub fn layout_document(
+    document: &Document,
+    measurer: &dyn TextMeasurer,
+) -> Result<RenderedDocument> {
     let mut tree = TaffyTree::<LayoutContext>::new();
     let root_id = build_tree(&mut tree, &document.root)?;
 
@@ -35,7 +44,11 @@ pub fn layout_document(document: &Document, measurer: &dyn TextMeasurer) -> Resu
     .map_err(|error| TaffyCanvasError::Layout(error.to_string()))?;
 
     let root = collect_layout(&tree, &document.root, root_id, 0.0, 0.0)?;
-    Ok(RenderedDocument { width: document.width, height: document.height, root })
+    Ok(RenderedDocument {
+        width: document.width,
+        height: document.height,
+        root,
+    })
 }
 
 fn build_tree(tree: &mut TaffyTree<LayoutContext>, node: &Node) -> Result<NodeId> {
@@ -43,7 +56,10 @@ fn build_tree(tree: &mut TaffyTree<LayoutContext>, node: &Node) -> Result<NodeId
     if node.children.is_empty() {
         tree.new_leaf_with_context(
             style,
-            LayoutContext { kind: node.kind.clone(), style: node.style.clone() },
+            LayoutContext {
+                kind: node.kind.clone(),
+                style: node.style.clone(),
+            },
         )
         .map_err(|error| TaffyCanvasError::Layout(error.to_string()))
     } else {
@@ -77,8 +93,14 @@ fn measure_node(
             Size { width, height }
         }
         NodeKind::Image { .. } => Size {
-            width: known_dimensions.width.or(context.style.width).unwrap_or(0.0),
-            height: known_dimensions.height.or(context.style.height).unwrap_or(0.0),
+            width: known_dimensions
+                .width
+                .or(context.style.width)
+                .unwrap_or(0.0),
+            height: known_dimensions
+                .height
+                .or(context.style.height)
+                .unwrap_or(0.0),
         },
         NodeKind::View => Size::ZERO,
     }
@@ -91,20 +113,27 @@ fn collect_layout(
     parent_x: f32,
     parent_y: f32,
 ) -> Result<LayoutNode> {
-    let layout = tree.layout(node_id).map_err(|error| TaffyCanvasError::Layout(error.to_string()))?;
+    let layout = tree
+        .layout(node_id)
+        .map_err(|error| TaffyCanvasError::Layout(error.to_string()))?;
     let x = parent_x + layout.location.x;
     let y = parent_y + layout.location.y;
 
     let children = node
         .children
         .iter()
-        .zip(tree.children(node_id).map_err(|error| TaffyCanvasError::Layout(error.to_string()))?)
+        .zip(
+            tree.children(node_id)
+                .map_err(|error| TaffyCanvasError::Layout(error.to_string()))?,
+        )
         .map(|(child_node, child_id)| collect_layout(tree, child_node, child_id, x, y))
         .collect::<Result<Vec<_>>>()?;
 
     let kind = match &node.kind {
         NodeKind::View => LayoutNodeKind::View,
-        NodeKind::Text { value } => LayoutNodeKind::Text { value: value.clone() },
+        NodeKind::Text { value } => LayoutNodeKind::Text {
+            value: value.clone(),
+        },
         NodeKind::Image { src } => LayoutNodeKind::Image { src: src.clone() },
     };
 
@@ -112,7 +141,12 @@ fn collect_layout(
         id: node.id.clone(),
         kind,
         style: node.style.clone(),
-        layout: LayoutBox { x, y, width: layout.size.width, height: layout.size.height },
+        layout: LayoutBox {
+            x,
+            y,
+            width: layout.size.width,
+            height: layout.size.height,
+        },
         children,
     })
 }
@@ -120,16 +154,34 @@ fn collect_layout(
 fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     let mut output = Style::default();
     output.size = Size {
-        width: style.width.map(Dimension::length).unwrap_or_else(Dimension::auto),
-        height: style.height.map(Dimension::length).unwrap_or_else(Dimension::auto),
+        width: style
+            .width
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
+        height: style
+            .height
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
     };
     output.min_size = Size {
-        width: style.min_width.map(Dimension::length).unwrap_or_else(Dimension::auto),
-        height: style.min_height.map(Dimension::length).unwrap_or_else(Dimension::auto),
+        width: style
+            .min_width
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
+        height: style
+            .min_height
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
     };
     output.max_size = Size {
-        width: style.max_width.map(Dimension::length).unwrap_or_else(Dimension::auto),
-        height: style.max_height.map(Dimension::length).unwrap_or_else(Dimension::auto),
+        width: style
+            .max_width
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
+        height: style
+            .max_height
+            .map(Dimension::length)
+            .unwrap_or_else(Dimension::auto),
     };
     output.margin = rect_auto(style.margin);
     output.padding = rect_length(style.padding);
@@ -147,7 +199,10 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     output.item_is_replaced = is_replaced;
 
     if let Some(gap) = style.gap {
-        output.gap = Size { width: LengthPercentage::length(gap), height: LengthPercentage::length(gap) };
+        output.gap = Size {
+            width: LengthPercentage::length(gap),
+            height: LengthPercentage::length(gap),
+        };
     }
     if let Some(direction) = &style.flex_direction {
         output.flex_direction = match direction.as_str() {

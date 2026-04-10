@@ -9,9 +9,24 @@ pub struct Color {
 }
 
 impl Color {
-    pub const TRANSPARENT: Self = Self { r: 0, g: 0, b: 0, a: 0 };
-    pub const WHITE: Self = Self { r: 255, g: 255, b: 255, a: 255 };
-    pub const BLACK: Self = Self { r: 0, g: 0, b: 0, a: 255 };
+    pub const TRANSPARENT: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    };
+    pub const WHITE: Self = Self {
+        r: 255,
+        g: 255,
+        b: 255,
+        a: 255,
+    };
+    pub const BLACK: Self = Self {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -55,7 +70,11 @@ pub struct FontStyleSpec {
 
 impl Default for FontStyleSpec {
     fn default() -> Self {
-        Self { family: "Arial".to_string(), size: 16, weight: 400 }
+        Self {
+            family: "Arial".to_string(),
+            size: 16,
+            weight: 400,
+        }
     }
 }
 

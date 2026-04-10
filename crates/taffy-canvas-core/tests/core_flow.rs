@@ -1,8 +1,8 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use taffy_canvas_core::{
-    layout_document, render_template, Color, FixedTextMeasurer, LayoutNodeKind, MemoryAssetProvider,
-    RenderOptions, RendererPool, Template, TemplateParams,
+    Color, FixedTextMeasurer, LayoutNodeKind, MemoryAssetProvider, RenderOptions, RendererPool,
+    Template, TemplateParams, layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -23,10 +23,14 @@ fn template_substitutes_text_and_document_size() {
     let mut params = TemplateParams::new();
     params.insert("name".to_string(), "Taffy".to_string());
 
-    let document = template.instantiate(&params).expect("document instantiates");
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
     assert_eq!(document.width, 320);
     assert_eq!(document.height, 180);
-    assert!(matches!(&document.root.children[0].kind, taffy_canvas_core::NodeKind::Text { value } if value == "Hello Taffy"));
+    assert!(
+        matches!(&document.root.children[0].kind, taffy_canvas_core::NodeKind::Text { value } if value == "Hello Taffy")
+    );
 }
 
 #[test]
@@ -40,8 +44,11 @@ fn layout_computes_absolute_offsets() {
     )
     .expect("template compiles");
 
-    let document = template.instantiate(&TemplateParams::new()).expect("document instantiates");
-    let laid_out = layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
     let child = &laid_out.root.children[0];
     assert_eq!(child.layout.x, 10.0);
     assert_eq!(child.layout.y, 12.0);
@@ -70,8 +77,24 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
 
     assert_eq!(output.width, 64);
     assert_eq!(output.height, 64);
-    assert_eq!(pixel(&output.pixels_rgba, 64, 1, 1), Color { r: 16, g: 24, b: 32, a: 255 });
-    assert_eq!(pixel(&output.pixels_rgba, 64, 12, 14), Color { r: 255, g: 51, b: 102, a: 255 });
+    assert_eq!(
+        pixel(&output.pixels_rgba, 64, 1, 1),
+        Color {
+            r: 16,
+            g: 24,
+            b: 32,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 64, 12, 14),
+        Color {
+            r: 255,
+            g: 51,
+            b: 102,
+            a: 255
+        }
+    );
 }
 
 #[test]
@@ -92,12 +115,23 @@ fn renderer_pool_renders_multiple_param_sets() {
 
     let pool = RendererPool::new(2).expect("pool");
     let outputs = pool
-        .render_many(&template, vec![first, second], Arc::new(empty_assets()), RenderOptions::default())
+        .render_many(
+            &template,
+            vec![first, second],
+            Arc::new(empty_assets()),
+            RenderOptions::default(),
+        )
         .expect("pool render");
 
     assert_eq!(outputs.len(), 2);
-    assert!(matches!(outputs[0].layout.root.children[0].kind, LayoutNodeKind::Text { .. }));
-    assert!(matches!(outputs[1].layout.root.children[0].kind, LayoutNodeKind::Text { .. }));
+    assert!(matches!(
+        outputs[0].layout.root.children[0].kind,
+        LayoutNodeKind::Text { .. }
+    ));
+    assert!(matches!(
+        outputs[1].layout.root.children[0].kind,
+        LayoutNodeKind::Text { .. }
+    ));
 }
 
 fn pixel(bytes: &[u8], width: usize, x: usize, y: usize) -> Color {

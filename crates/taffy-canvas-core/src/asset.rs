@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::{error::TaffyCanvasError, Result};
+use crate::{Result, error::TaffyCanvasError};
 
 pub trait AssetProvider: Send + Sync {
     fn load(&self, key: &str) -> Result<Vec<u8>>;

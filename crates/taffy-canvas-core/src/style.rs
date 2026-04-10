@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use crate::{
+    Result,
     document::{FontStyleSpec, ImageFit, Insets, PositionKind, StyleSpec, TextAlign},
     error::TaffyCanvasError,
-    Result,
 };
 
 use crate::document::Color;
@@ -40,7 +40,9 @@ pub fn parse_color(value: &str) -> Result<Color> {
     }
 }
 
-pub fn style_from_attrs(attrs: &BTreeMap<String, String>) -> Result<(StyleSpec, BTreeMap<String, String>)> {
+pub fn style_from_attrs(
+    attrs: &BTreeMap<String, String>,
+) -> Result<(StyleSpec, BTreeMap<String, String>)> {
     let mut style = StyleSpec::default();
     let mut metadata = BTreeMap::new();
 
@@ -72,7 +74,7 @@ pub fn style_from_attrs(attrs: &BTreeMap<String, String>) -> Result<(StyleSpec, 
                         return Err(TaffyCanvasError::InvalidAttribute {
                             attribute: key.clone(),
                             message: other.to_string(),
-                        })
+                        });
                     }
                 }
             }
@@ -93,7 +95,7 @@ pub fn style_from_attrs(attrs: &BTreeMap<String, String>) -> Result<(StyleSpec, 
                         return Err(TaffyCanvasError::InvalidAttribute {
                             attribute: key.clone(),
                             message: other.to_string(),
-                        })
+                        });
                     }
                 }
             }
@@ -106,7 +108,7 @@ pub fn style_from_attrs(attrs: &BTreeMap<String, String>) -> Result<(StyleSpec, 
                         return Err(TaffyCanvasError::InvalidAttribute {
                             attribute: key.clone(),
                             message: other.to_string(),
-                        })
+                        });
                     }
                 }
             }
@@ -126,10 +128,12 @@ pub fn style_from_attrs(attrs: &BTreeMap<String, String>) -> Result<(StyleSpec, 
 
 pub fn parse_number(value: &str, attribute: &str) -> Result<f32> {
     let normalized = value.trim().strip_suffix("px").unwrap_or(value.trim());
-    normalized.parse::<f32>().map_err(|_| TaffyCanvasError::InvalidAttribute {
-        attribute: attribute.to_string(),
-        message: value.to_string(),
-    })
+    normalized
+        .parse::<f32>()
+        .map_err(|_| TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        })
 }
 
 fn parse_insets(value: &str, attribute: &str) -> Result<Insets> {
@@ -139,7 +143,12 @@ fn parse_insets(value: &str, attribute: &str) -> Result<Insets> {
         .collect::<Result<Vec<_>>>()?;
 
     match parts.as_slice() {
-        [all] => Ok(Insets { top: *all, right: *all, bottom: *all, left: *all }),
+        [all] => Ok(Insets {
+            top: *all,
+            right: *all,
+            bottom: *all,
+            left: *all,
+        }),
         [vertical, horizontal] => Ok(Insets {
             top: *vertical,
             right: *horizontal,
@@ -152,7 +161,12 @@ fn parse_insets(value: &str, attribute: &str) -> Result<Insets> {
             bottom: *bottom,
             left: *horizontal,
         }),
-        [top, right, bottom, left] => Ok(Insets { top: *top, right: *right, bottom: *bottom, left: *left }),
+        [top, right, bottom, left] => Ok(Insets {
+            top: *top,
+            right: *right,
+            bottom: *bottom,
+            left: *left,
+        }),
         _ => Err(TaffyCanvasError::InvalidAttribute {
             attribute: attribute.to_string(),
             message: value.to_string(),
