@@ -8,7 +8,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use skia_safe::{Color as SkColor, EncodedImageFormat, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    MemoryAssetProvider, RenderOptions, Template, TemplateParams, render_template,
+    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Template, TemplateParams,
+    render_template,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -103,7 +104,10 @@ fn assert_render_matches_golden(name: &str, xml: &str, assets: MemoryAssetProvid
         &template,
         &TemplateParams::new(),
         &assets,
-        RenderOptions::default(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
     )
     .expect("render succeeds");
 

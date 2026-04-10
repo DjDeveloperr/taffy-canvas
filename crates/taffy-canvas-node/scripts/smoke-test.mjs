@@ -12,7 +12,8 @@ assert.equal(typeof binding.version(), 'string')
 
 const png = binding.renderXmlSync(
   '<view width="8" height="8" background="#102030"><view width="4" height="4" position="absolute" left="2" top="2" background="#ff0000" /></view>',
-  null
+  null,
+  'cpu'
 )
 assert.ok(Buffer.isBuffer(png))
 assert.ok(png.length > 0)
@@ -23,7 +24,7 @@ const template = binding.compileTemplate(
   '<view width="8" height="8" background="#102030"><text color="#ffffff">Hi</text></view>'
 )
 const prepared = binding.prepareTemplateWithRenderer(renderer, resources, template)
-const compiledPng = binding.renderPreparedSync(prepared, {})
+const compiledPng = binding.renderPreparedSync(prepared, {}, process.platform === 'darwin' ? 'gpu' : 'cpu')
 
 assert.ok(Buffer.isBuffer(compiledPng))
 assert.ok(compiledPng.length > 0)

@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use skia_safe::{Color as SkColor, EncodedImageFormat, Paint, Rect, surfaces};
-use taffy_canvas_core::{MemoryAssetProvider, RenderOptions, Renderer, Template, TemplateParams};
+use taffy_canvas_core::{
+    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Renderer, Template, TemplateParams,
+};
 
 fn bench_render(c: &mut Criterion) {
     let xml = r##"
@@ -30,12 +32,7 @@ fn bench_render(c: &mut Criterion) {
     let renderer = Renderer::new(4).expect("renderer");
 
     renderer
-        .render(
-            &image_template,
-            &params,
-            &image_assets,
-            RenderOptions::default(),
-        )
+        .render(&image_template, &params, &image_assets, cpu_options())
         .expect("warm image cache");
 
     c.bench_function("template_compile", |b| {
@@ -46,18 +43,13 @@ fn bench_render(c: &mut Criterion) {
 
     c.bench_function("prepared_render", |b| {
         b.iter(|| {
-            let _ = renderer.render(&template, &params, &assets, RenderOptions::default());
+            let _ = renderer.render(&template, &params, &assets, cpu_options());
         });
     });
 
     c.bench_function("prepared_render_cached_image", |b| {
         b.iter(|| {
-            let _ = renderer.render(
-                &image_template,
-                &params,
-                &image_assets,
-                RenderOptions::default(),
-            );
+            let _ = renderer.render(&image_template, &params, &image_assets, cpu_options());
         });
     });
 
@@ -65,12 +57,14 @@ fn bench_render(c: &mut Criterion) {
         b.iter(|| {
             let mut cold_assets = MemoryAssetProvider::new(BTreeMap::new());
             cold_assets.insert_asset("swatch", image_bytes.clone());
-            let _ = renderer.render(
-                &image_template,
-                &params,
-                &cold_assets,
-                RenderOptions::default(),
-            );
+            let _ = renderer.render(&image_template, &params, &cold_assets, cpu_options());
+        });
+    });
+
+    #[cfg(target_os = "macos")]
+    c.bench_function("prepared_render_gpu", |b| {
+        b.iter(|| {
+            let _ = renderer.render(&template, &params, &assets, gpu_options());
         });
     });
 }
@@ -95,4 +89,19 @@ fn sample_image_png() -> Vec<u8> {
         .expect("png")
         .as_bytes()
         .to_vec()
+}
+
+fn cpu_options() -> RenderOptions {
+    RenderOptions {
+        backend: RenderBackendPreference::Cpu,
+        ..RenderOptions::default()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn gpu_options() -> RenderOptions {
+    RenderOptions {
+        backend: RenderBackendPreference::Gpu,
+        ..RenderOptions::default()
+    }
 }

@@ -6,7 +6,9 @@ use napi::{
 };
 use napi_derive::napi;
 use serde_json::Value;
-use taffy_canvas_core::{MemoryAssetProvider, RenderOptions, Renderer, Template, TemplateParams};
+use taffy_canvas_core::{
+    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Renderer, Template, TemplateParams,
+};
 
 static DEFAULT_RENDERER: OnceLock<Renderer> = OnceLock::new();
 
@@ -106,19 +108,28 @@ pub fn prepare_template_with_renderer(
 }
 
 #[napi]
-pub fn render_xml_sync(xml: String, params: Option<Value>) -> Result<Buffer> {
+pub fn render_xml_sync(
+    xml: String,
+    params: Option<Value>,
+    backend: Option<String>,
+) -> Result<Buffer> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
     render_with_template(
         default_renderer(),
         &template,
         normalize_params(params)?,
         &MemoryAssetProvider::default(),
+        backend,
     )
     .map(Buffer::from)
 }
 
 #[napi]
-pub async fn render_xml(xml: String, params: Option<Value>) -> Result<Buffer> {
+pub async fn render_xml(
+    xml: String,
+    params: Option<Value>,
+    backend: Option<String>,
+) -> Result<Buffer> {
     let params = normalize_params(params)?;
     let renderer = default_renderer().clone();
 
@@ -129,6 +140,7 @@ pub async fn render_xml(xml: String, params: Option<Value>) -> Result<Buffer> {
             &template,
             params,
             &MemoryAssetProvider::default(),
+            backend,
         )
     })
     .await
@@ -141,12 +153,14 @@ pub async fn render_xml(xml: String, params: Option<Value>) -> Result<Buffer> {
 pub fn render_compiled_sync(
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     render_with_template(
         default_renderer(),
         template.as_ref(),
         normalize_params(params)?,
         &MemoryAssetProvider::default(),
+        backend,
     )
     .map(Buffer::from)
 }
@@ -155,6 +169,7 @@ pub fn render_compiled_sync(
 pub async fn render_compiled(
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     let renderer = default_renderer().clone();
     let template = template.as_ref().clone();
@@ -166,6 +181,7 @@ pub async fn render_compiled(
             &template,
             params,
             &MemoryAssetProvider::default(),
+            backend,
         )
     })
     .await
@@ -179,12 +195,14 @@ pub fn render_with_renderer_sync(
     renderer: &External<Renderer>,
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     render_with_template(
         renderer.as_ref(),
         template.as_ref(),
         normalize_params(params)?,
         &MemoryAssetProvider::default(),
+        backend,
     )
     .map(Buffer::from)
 }
@@ -194,6 +212,7 @@ pub async fn render_with_renderer(
     renderer: &External<Renderer>,
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     let renderer = renderer.as_ref().clone();
     let template = template.as_ref().clone();
@@ -205,6 +224,7 @@ pub async fn render_with_renderer(
             &template,
             params,
             &MemoryAssetProvider::default(),
+            backend,
         )
     })
     .await
@@ -218,12 +238,14 @@ pub fn render_compiled_with_resources_sync(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     render_with_template(
         default_renderer(),
         template.as_ref(),
         normalize_params(params)?,
         resources.as_ref(),
+        backend,
     )
     .map(Buffer::from)
 }
@@ -233,6 +255,7 @@ pub async fn render_compiled_with_resources(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     let renderer = default_renderer().clone();
     let template = template.as_ref().clone();
@@ -240,7 +263,7 @@ pub async fn render_compiled_with_resources(
     let params = normalize_params(params)?;
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        render_with_template(&renderer, &template, params, &resources)
+        render_with_template(&renderer, &template, params, &resources, backend)
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -254,12 +277,14 @@ pub fn render_with_renderer_and_resources_sync(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     render_with_template(
         renderer.as_ref(),
         template.as_ref(),
         normalize_params(params)?,
         resources.as_ref(),
+        backend,
     )
     .map(Buffer::from)
 }
@@ -270,6 +295,7 @@ pub async fn render_with_renderer_and_resources(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     let renderer = renderer.as_ref().clone();
     let resources = resources.as_ref().clone();
@@ -277,7 +303,7 @@ pub async fn render_with_renderer_and_resources(
     let params = normalize_params(params)?;
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        render_with_template(&renderer, &template, params, &resources)
+        render_with_template(&renderer, &template, params, &resources, backend)
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -289,12 +315,14 @@ pub async fn render_with_renderer_and_resources(
 pub fn render_prepared_sync(
     prepared: &External<PreparedTemplateHandle>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     render_with_template(
         &prepared.renderer,
         &prepared.template,
         normalize_params(params)?,
         &prepared.resources,
+        backend,
     )
     .map(Buffer::from)
 }
@@ -303,6 +331,7 @@ pub fn render_prepared_sync(
 pub async fn render_prepared(
     prepared: &External<PreparedTemplateHandle>,
     params: Option<Value>,
+    backend: Option<String>,
 ) -> Result<Buffer> {
     let prepared = prepared.as_ref().clone();
     let params = normalize_params(params)?;
@@ -313,6 +342,7 @@ pub async fn render_prepared(
             &prepared.template,
             params,
             &prepared.resources,
+            backend,
         )
     })
     .await
@@ -326,11 +356,32 @@ fn render_with_template(
     template: &Template,
     params: TemplateParams,
     resources: &MemoryAssetProvider,
+    backend: Option<String>,
 ) -> Result<Vec<u8>> {
+    let options = parse_render_options(backend)?;
     let output = renderer
-        .render(template, &params, resources, RenderOptions::default())
+        .render(template, &params, resources, options)
         .map_err(to_napi_error)?;
     Ok(output.png_bytes)
+}
+
+fn parse_render_options(backend: Option<String>) -> Result<RenderOptions> {
+    let backend = match backend.as_deref() {
+        None | Some("auto") => RenderBackendPreference::Auto,
+        Some("cpu") => RenderBackendPreference::Cpu,
+        Some("gpu") => RenderBackendPreference::Gpu,
+        Some(other) => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("backend must be `auto`, `cpu`, or `gpu`, got `{other}`"),
+            ));
+        }
+    };
+
+    Ok(RenderOptions {
+        backend,
+        ..RenderOptions::default()
+    })
 }
 
 fn normalize_params(input: Option<Value>) -> Result<TemplateParams> {

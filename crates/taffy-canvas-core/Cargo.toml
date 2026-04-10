@@ -19,6 +19,11 @@ smallvec.workspace = true
 taffy.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-metal = "0.3.2"
+skia-safe = { workspace = true, features = ["gpu", "metal"] }
+
 [dev-dependencies]
 criterion.workspace = true
 

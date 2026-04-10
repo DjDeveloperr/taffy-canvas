@@ -21,6 +21,9 @@ pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;
 pub use parser::parse_template;
 pub use pool::{PreparedTemplate, Renderer};
-pub use render::{RenderOptions, RenderOutput, render_document, render_template};
+pub use render::{
+    RenderBackend, RenderBackendPreference, RenderOptions, RenderOutput, render_document,
+    render_template,
+};
 pub use template::{Template, TemplateParams};
 pub use text::{FixedTextMeasurer, SkiaTextMeasurer, TextMeasurer};

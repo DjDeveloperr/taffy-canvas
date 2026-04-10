@@ -9,8 +9,9 @@ use std::{
 use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
     Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, LayoutNodeKind,
-    MemoryAssetProvider, RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec,
-    Template, TemplateParams, TextMeasurer, layout_document, render_template,
+    MemoryAssetProvider, RenderBackend, RenderBackendPreference, RenderOptions, Renderer,
+    ResourceProvider, SkiaTextMeasurer, StyleSpec, Template, TemplateParams, TextMeasurer,
+    layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -474,6 +475,10 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
 
     assert_eq!(output.width, 64);
     assert_eq!(output.height, 64);
+    #[cfg(target_os = "macos")]
+    assert_eq!(output.backend, RenderBackend::Gpu);
+    #[cfg(not(target_os = "macos"))]
+    assert_eq!(output.backend, RenderBackend::Cpu);
     assert_eq!(
         pixel(&output.pixels_rgba, 64, 1, 1),
         Color {
@@ -491,6 +496,118 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
             b: 102,
             a: 255
         }
+    );
+}
+
+#[test]
+fn render_cpu_backend_reports_cpu() {
+    let template = Template::compile(
+        r##"
+        <view width="8" height="8" background="#101820" />
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    assert_eq!(output.backend, RenderBackend::Cpu);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn render_gpu_backend_reports_gpu() {
+    let template = Template::compile(
+        r##"
+        <view width="8" height="8" background="#101820" />
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Gpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("gpu render succeeds");
+
+    assert_eq!(output.backend, RenderBackend::Gpu);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn render_gpu_matches_cpu_for_basic_rect_scene() {
+    let template = Template::compile(
+        r##"
+        <view width="16" height="16" background="#102030">
+          <view width="6" height="5" position="absolute" left="4" top="3" background="#ff3366" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let cpu = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("cpu render succeeds");
+    let gpu = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Gpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("gpu render succeeds");
+
+    assert_eq!(gpu.backend, RenderBackend::Gpu);
+    assert_eq!(cpu.pixels_rgba, gpu.pixels_rgba);
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn render_gpu_backend_errors_when_unavailable() {
+    let template = Template::compile(
+        r##"
+        <view width="8" height="8" background="#101820" />
+        "##,
+    )
+    .expect("template compiles");
+
+    let error = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions {
+            backend: RenderBackendPreference::Gpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect_err("gpu backend should fail on non-macos targets");
+
+    assert!(
+        error
+            .to_string()
+            .contains("gpu backend is only implemented on macOS right now")
     );
 }
 
