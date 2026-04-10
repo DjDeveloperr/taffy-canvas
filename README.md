@@ -41,7 +41,8 @@ Implemented today:
   - flex grow
   - flex shrink
   - aspect ratio
-  - width, height, min/max sizes
+  - absolute lengths and percentages for width, height, min/max sizes, insets, padding, margin, and flex basis
+  - auto margins
   - `gap`, `row-gap`, `column-gap`
   - per-side padding and margin
 - rendering support for:
@@ -60,7 +61,7 @@ Still not implemented:
 - GPU-backed rendering path
 - inline images and richer rich text flow beyond styled spans
 - broader CSS/Taffy coverage beyond the current subset
-  - percentages, auto margins, and additional box-model/layout shorthands are still incomplete
+  - additional layout/display modes and more CSS shorthands are still incomplete
 - pooled prepared-image caches and deeper render-time reuse
 
 ## XML Model
@@ -85,7 +86,7 @@ Inline styled spans are also supported inside `text`:
 Rules:
 
 - the root element must be `<view>`
-- root width and height are required
+- root width and height are required and must be absolute lengths
 - template params use `{{name}}`
 - `text` can use inner text or a `value` attribute
 - `text` can contain nested `<span>` nodes for inline styling
