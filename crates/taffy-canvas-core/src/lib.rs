@@ -14,9 +14,10 @@ pub use asset::{
     PreparedImageRequest, ResourceProvider,
 };
 pub use document::{
-    Color, DisplayKind, Document, FontStyleSpec, ImageFit, InlineFragment, InlineImageRun, Insets,
-    LayoutBox, LayoutNode, LayoutNodeKind, LengthAutoValue, LengthValue, Node, NodeKind,
-    PositionKind, RenderedDocument, StyleSpec, TextAlign, TextRun,
+    Color, DisplayKind, Document, FontSlant, FontStyleSpec, ImageFit, InlineFragment,
+    InlineImageRun, Insets, LayoutBox, LayoutNode, LayoutNodeKind, LengthAutoValue, LengthValue,
+    LineHeightValue, Node, NodeKind, PositionKind, RenderedDocument, StyleSpec, TextAlign,
+    TextDecorationSpec, TextDecorationStyleKind, TextRun,
 };
 pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;

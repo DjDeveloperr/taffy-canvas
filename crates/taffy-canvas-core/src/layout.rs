@@ -3,8 +3,9 @@ use taffy::{
     prelude::{
         AlignContent, AlignItems, AlignSelf, AvailableSpace, Dimension, Display, FlexDirection,
         FlexWrap, GridAutoFlow, GridPlacement, JustifyContent, LengthPercentage,
-        LengthPercentageAuto, Rect, Size, Style, TaffyTree, TrackSizingFunction, auto, fr, length,
-        line, percent, span,
+        LengthPercentageAuto, MaxTrackSizingFunction, MinTrackSizingFunction, Rect,
+        RepetitionCount, Size, Style, TaffyTree, TrackSizingFunction, auto, fit_content, fr,
+        length, line, min_content, minmax, percent, repeat, span,
     },
 };
 
@@ -285,31 +286,21 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     output.flex_grow = style.flex_grow;
     output.flex_shrink = style.flex_shrink;
     if let Some(columns) = &style.grid_template_columns {
-        output.grid_template_columns = columns
-            .split_whitespace()
-            .filter(|part| !part.is_empty())
-            .map(|part| parse_track_sizing(part).into())
-            .collect();
+        output.grid_template_columns = parse_grid_template_tracks(columns);
     }
     if let Some(rows) = &style.grid_template_rows {
-        output.grid_template_rows = rows
-            .split_whitespace()
-            .filter(|part| !part.is_empty())
-            .map(|part| parse_track_sizing(part).into())
-            .collect();
+        output.grid_template_rows = parse_grid_template_tracks(rows);
     }
     if let Some(columns) = &style.grid_auto_columns {
-        output.grid_auto_columns = columns
-            .split_whitespace()
-            .filter(|part| !part.is_empty())
-            .map(parse_track_sizing)
+        output.grid_auto_columns = split_track_list(columns)
+            .into_iter()
+            .map(|part| parse_track_sizing(&part))
             .collect();
     }
     if let Some(rows) = &style.grid_auto_rows {
-        output.grid_auto_rows = rows
-            .split_whitespace()
-            .filter(|part| !part.is_empty())
-            .map(parse_track_sizing)
+        output.grid_auto_rows = split_track_list(rows)
+            .into_iter()
+            .map(|part| parse_track_sizing(&part))
             .collect();
     }
     if let Some(flow) = &style.grid_auto_flow {
@@ -412,6 +403,21 @@ fn parse_track_sizing(value: &str) -> TrackSizingFunction {
     if trimmed == "auto" {
         return auto();
     }
+    if trimmed == "min-content" {
+        return min_content();
+    }
+    if trimmed == "max-content" {
+        return taffy::prelude::max_content();
+    }
+    if let Some(argument) = function_argument(trimmed, "fit-content") {
+        return fit_content(parse_track_length_percentage(argument));
+    }
+    if let Some(argument) = function_argument(trimmed, "minmax") {
+        let parts = split_function_arguments(argument);
+        if let [min, max] = parts.as_slice() {
+            return minmax(parse_min_track_sizing(min), parse_max_track_sizing(max));
+        }
+    }
     if let Some(fr_value) = trimmed.strip_suffix("fr")
         && let Ok(number) = fr_value.trim().parse::<f32>()
     {
@@ -426,6 +432,157 @@ fn parse_track_sizing(value: &str) -> TrackSizingFunction {
         Ok(points) => length(points),
         Err(_) => auto(),
     }
+}
+
+fn parse_grid_template_tracks<S: taffy::style::CheapCloneStr>(
+    value: &str,
+) -> Vec<taffy::style::GridTemplateComponent<S>> {
+    split_track_list(value)
+        .into_iter()
+        .map(|part| parse_grid_template_component(&part))
+        .collect()
+}
+
+fn parse_grid_template_component<S: taffy::style::CheapCloneStr>(
+    value: &str,
+) -> taffy::style::GridTemplateComponent<S> {
+    let trimmed = value.trim();
+    if let Some(argument) = function_argument(trimmed, "repeat") {
+        let parts = split_function_arguments(argument);
+        if let Some((count, tracks)) = parts.split_first()
+            && let Some(repetition) = parse_repeat_count(count)
+        {
+            let repeated_tracks = tracks.iter().map(|part| parse_track_sizing(part)).collect();
+            return repeat(repetition, repeated_tracks);
+        }
+    }
+    parse_track_sizing(trimmed).into()
+}
+
+fn parse_repeat_count(value: &str) -> Option<RepetitionCount> {
+    match value.trim() {
+        "auto-fit" => Some(RepetitionCount::AutoFit),
+        "auto-fill" => Some(RepetitionCount::AutoFill),
+        other => other.parse::<u16>().ok().map(Into::into),
+    }
+}
+
+fn parse_min_track_sizing(value: &str) -> MinTrackSizingFunction {
+    match value.trim() {
+        "auto" => auto(),
+        "min-content" => min_content(),
+        "max-content" => taffy::prelude::max_content(),
+        other => {
+            if let Some(percent_value) = other.strip_suffix('%')
+                && let Ok(number) = percent_value.trim().parse::<f32>()
+            {
+                return percent(number / 100.0);
+            }
+            other.parse::<f32>().map(length).unwrap_or_else(|_| auto())
+        }
+    }
+}
+
+fn parse_max_track_sizing(value: &str) -> MaxTrackSizingFunction {
+    match value.trim() {
+        "auto" => auto(),
+        "min-content" => min_content(),
+        "max-content" => taffy::prelude::max_content(),
+        other => {
+            if let Some(argument) = function_argument(other, "fit-content") {
+                return fit_content(parse_track_length_percentage(argument));
+            }
+            if let Some(fr_value) = other.strip_suffix("fr")
+                && let Ok(number) = fr_value.trim().parse::<f32>()
+            {
+                return fr(number);
+            }
+            if let Some(percent_value) = other.strip_suffix('%')
+                && let Ok(number) = percent_value.trim().parse::<f32>()
+            {
+                return percent(number / 100.0);
+            }
+            other.parse::<f32>().map(length).unwrap_or_else(|_| auto())
+        }
+    }
+}
+
+fn parse_track_length_percentage(value: &str) -> LengthPercentage {
+    let trimmed = value.trim();
+    if let Some(percent_value) = trimmed.strip_suffix('%')
+        && let Ok(number) = percent_value.trim().parse::<f32>()
+    {
+        return percent(number / 100.0);
+    }
+    trimmed
+        .parse::<f32>()
+        .map(length)
+        .unwrap_or_else(|_| length(0.0))
+}
+
+fn split_track_list(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for ch in value.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' | ' ' | '\n' | '\t' if depth == 0 => {
+                if !current.trim().is_empty() {
+                    tokens.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        tokens.push(current.trim().to_string());
+    }
+    tokens
+}
+
+fn function_argument<'a>(value: &'a str, name: &str) -> Option<&'a str> {
+    let prefix = format!("{name}(");
+    value
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix(')'))
+}
+
+fn split_function_arguments(value: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut current = String::new();
+    for ch in value.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                if !current.trim().is_empty() {
+                    parts.push(current.trim().to_string());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.trim().is_empty() {
+        parts.push(current.trim().to_string());
+    }
+    parts
 }
 
 fn parse_grid_auto_flow(value: &str) -> GridAutoFlow {

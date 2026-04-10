@@ -8,10 +8,10 @@ use std::{
 
 use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, InlineFragment,
-    LayoutNodeKind, MemoryAssetProvider, RenderBackend, RenderBackendPreference, RenderOptions,
-    Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, Template, TemplateParams,
-    TextMeasurer, layout_document, render_template,
+    Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, FontSlant, InlineFragment,
+    LayoutNodeKind, LineHeightValue, MemoryAssetProvider, RenderBackend, RenderBackendPreference,
+    RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, Template,
+    TemplateParams, TextDecorationStyleKind, TextMeasurer, layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -111,6 +111,54 @@ fn template_supports_inline_images_inside_text() {
             assert!(matches!(&fragments[0], InlineFragment::Text(_)));
             assert!(matches!(&fragments[1], InlineFragment::Image(image) if image.src == "orb"));
             assert!(matches!(&fragments[2], InlineFragment::Text(_)));
+        }
+        other => panic!("expected text node, got {other:?}"),
+    }
+}
+
+#[test]
+fn template_merges_richer_inline_span_text_styles() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="120">
+          <text color="#ffffff" font-family="Arial" font-size="16">A<span font-style="italic" line-height="1.5" letter-spacing="2" word-spacing="3" baseline-shift="4" text-decoration="underline line-through" text-decoration-style="dashed" text-decoration-thickness="1.5" text-decoration-color="#00ff00">B</span></text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    match &document.root.children[0].kind {
+        taffy_canvas_core::NodeKind::Text { fragments, .. } => {
+            let InlineFragment::Text(span) = &fragments[1] else {
+                panic!("expected styled span fragment");
+            };
+            assert_eq!(span.style.font.style, FontSlant::Italic);
+            assert_eq!(
+                span.style.line_height,
+                Some(LineHeightValue::Multiplier(1.5))
+            );
+            assert_eq!(span.style.letter_spacing, 2.0);
+            assert_eq!(span.style.word_spacing, 3.0);
+            assert_eq!(span.style.baseline_shift, 4.0);
+            assert!(span.style.text_decoration.underline);
+            assert!(span.style.text_decoration.line_through);
+            assert_eq!(
+                span.style.text_decoration.style,
+                TextDecorationStyleKind::Dashed
+            );
+            assert_eq!(span.style.text_decoration.thickness_multiplier, 1.5);
+            assert_eq!(
+                span.style.text_decoration.color,
+                Some(Color {
+                    r: 0,
+                    g: 255,
+                    b: 0,
+                    a: 255
+                })
+            );
         }
         other => panic!("expected text node, got {other:?}"),
     }
@@ -452,6 +500,33 @@ fn layout_supports_grid_tracks_and_line_placement() {
     assert_eq!(laid_out.root.children[1].layout.y, 24.0);
     assert_eq!(laid_out.root.children[1].layout.width, 20.0);
     assert_eq!(laid_out.root.children[1].layout.height, 56.0);
+}
+
+#[test]
+fn layout_supports_repeat_minmax_and_fit_content_grid_tracks() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="60" display="grid" grid-template-columns="repeat(2, minmax(20, 1fr)) fit-content(30)" grid-template-rows="1fr" background="#ffffff">
+          <view grid-column="1" grid-row="1" height="10" background="#ff0000" />
+          <view grid-column="2" grid-row="1" height="10" background="#00ff00" />
+          <view grid-column="3" grid-row="1" width="20" height="10" background="#0000ff" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 0.0);
+    assert_eq!(laid_out.root.children[0].layout.width, 50.0);
+    assert_eq!(laid_out.root.children[1].layout.x, 50.0);
+    assert_eq!(laid_out.root.children[1].layout.width, 50.0);
+    assert_eq!(laid_out.root.children[2].layout.x, 100.0);
+    assert_eq!(laid_out.root.children[2].layout.width, 20.0);
 }
 
 #[test]
@@ -993,6 +1068,68 @@ fn skia_text_measurement_wraps_under_width_constraints() {
     assert!(narrow.height > wide.height);
     assert!(narrow.width <= wide.width);
     assert!(narrow.height > 20.0);
+}
+
+#[test]
+fn skia_text_measurement_respects_spacing_and_line_height() {
+    let mut base_style = StyleSpec::default();
+    base_style.font.family = "Arial".to_string();
+    base_style.font.size = 16;
+
+    let mut spaced_style = base_style.clone();
+    spaced_style.letter_spacing = 2.0;
+
+    let mut tall_style = base_style.clone();
+    tall_style.line_height = Some(LineHeightValue::Multiplier(1.75));
+
+    let measurer = SkiaTextMeasurer::default();
+    let base = measurer.measure("TAFFY CANVAS", &base_style, Some(1000.0));
+    let spaced = measurer.measure("TAFFY CANVAS", &spaced_style, Some(1000.0));
+    let tall = measurer.measure("TAFFY\nCANVAS", &tall_style, Some(1000.0));
+    let normal_multiline = measurer.measure("TAFFY\nCANVAS", &base_style, Some(1000.0));
+
+    assert!(spaced.width > base.width);
+    assert!(tall.height > normal_multiline.height);
+}
+
+#[test]
+fn template_parses_text_decoration_attributes_on_root_text() {
+    let template = Template::compile(
+        r##"
+        <view width="160" height="60">
+          <text text-decoration="underline overline" text-decoration-style="double" text-decoration-color="#ff00ff" text-decoration-thickness="2">Canvas</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let taffy_canvas_core::NodeKind::Text { fragments, .. } = &document.root.children[0].kind
+    else {
+        panic!("expected text node");
+    };
+    let InlineFragment::Text(run) = &fragments[0] else {
+        panic!("expected text fragment");
+    };
+
+    assert!(run.style.text_decoration.underline);
+    assert!(run.style.text_decoration.overline);
+    assert_eq!(
+        run.style.text_decoration.style,
+        TextDecorationStyleKind::Double
+    );
+    assert_eq!(run.style.text_decoration.thickness_multiplier, 2.0);
+    assert_eq!(
+        run.style.text_decoration.color,
+        Some(Color {
+            r: 255,
+            g: 0,
+            b: 255,
+            a: 255
+        })
+    );
 }
 
 #[test]

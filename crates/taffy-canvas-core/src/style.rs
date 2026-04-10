@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use crate::{
     Result,
     document::{
-        DisplayKind, FontStyleSpec, ImageFit, Insets, LengthAutoValue, LengthValue, PositionKind,
-        StyleSpec, TextAlign,
+        DisplayKind, FontSlant, FontStyleSpec, ImageFit, Insets, LengthAutoValue, LengthValue,
+        LineHeightValue, PositionKind, StyleSpec, TextAlign, TextDecorationStyleKind,
     },
     error::TaffyCanvasError,
 };
@@ -173,6 +173,30 @@ pub fn style_from_attrs(
             "font-size" => style.font.size = parse_number(value, key)? as u32,
             "font-family" => style.font.family = value.trim().to_string(),
             "font-weight" => style.font.weight = parse_number(value, key)? as u16,
+            "font-style" => {
+                style.font.style = match value.trim() {
+                    "normal" => FontSlant::Normal,
+                    "italic" | "oblique" => FontSlant::Italic,
+                    other => {
+                        return Err(TaffyCanvasError::InvalidAttribute {
+                            attribute: key.clone(),
+                            message: other.to_string(),
+                        });
+                    }
+                }
+            }
+            "line-height" => style.line_height = parse_line_height(value, key)?,
+            "letter-spacing" => style.letter_spacing = parse_number(value, key)?,
+            "word-spacing" => style.word_spacing = parse_number(value, key)?,
+            "baseline-shift" => style.baseline_shift = parse_number(value, key)?,
+            "text-decoration" => parse_text_decoration(&mut style, value, key)?,
+            "text-decoration-color" => style.text_decoration.color = Some(parse_color(value)?),
+            "text-decoration-style" => {
+                style.text_decoration.style = parse_text_decoration_style(value, key)?
+            }
+            "text-decoration-thickness" => {
+                style.text_decoration.thickness_multiplier = parse_number(value, key)?
+            }
             "align" | "text-align" => {
                 style.text_align = match value.trim() {
                     "start" | "left" => TextAlign::Start,
@@ -265,6 +289,32 @@ fn parse_length_auto(value: &str, attribute: &str) -> Result<LengthAutoValue> {
     Ok(LengthAutoValue::Length(parse_length(value, attribute)?))
 }
 
+fn parse_line_height(value: &str, attribute: &str) -> Result<Option<LineHeightValue>> {
+    let trimmed = value.trim();
+    if trimmed == "normal" {
+        return Ok(None);
+    }
+    if let Some(percent) = trimmed.strip_suffix('%') {
+        let normalized =
+            percent
+                .trim()
+                .parse::<f32>()
+                .map_err(|_| TaffyCanvasError::InvalidAttribute {
+                    attribute: attribute.to_string(),
+                    message: value.to_string(),
+                })?;
+        return Ok(Some(LineHeightValue::Percent(normalized / 100.0)));
+    }
+    if trimmed.ends_with("px") {
+        return Ok(Some(LineHeightValue::Points(parse_number(
+            trimmed, attribute,
+        )?)));
+    }
+    Ok(Some(LineHeightValue::Multiplier(parse_number(
+        trimmed, attribute,
+    )?)))
+}
+
 fn parse_length_insets(value: &str, attribute: &str) -> Result<Insets<LengthValue>> {
     let parts = value
         .split_whitespace()
@@ -353,6 +403,47 @@ fn parse_pair(value: &str) -> (&str, &str) {
     let first = parts.next().unwrap_or("start");
     let second = parts.next().unwrap_or(first);
     (first, second)
+}
+
+fn parse_text_decoration(style: &mut StyleSpec, value: &str, attribute: &str) -> Result<()> {
+    let mut decoration = style.text_decoration;
+    decoration.underline = false;
+    decoration.overline = false;
+    decoration.line_through = false;
+    for part in value.split_whitespace() {
+        match part {
+            "none" => {
+                decoration.underline = false;
+                decoration.overline = false;
+                decoration.line_through = false;
+            }
+            "underline" => decoration.underline = true,
+            "overline" => decoration.overline = true,
+            "line-through" => decoration.line_through = true,
+            other => {
+                return Err(TaffyCanvasError::InvalidAttribute {
+                    attribute: attribute.to_string(),
+                    message: other.to_string(),
+                });
+            }
+        }
+    }
+    style.text_decoration = decoration;
+    Ok(())
+}
+
+fn parse_text_decoration_style(value: &str, attribute: &str) -> Result<TextDecorationStyleKind> {
+    match value.trim() {
+        "solid" => Ok(TextDecorationStyleKind::Solid),
+        "double" => Ok(TextDecorationStyleKind::Double),
+        "dotted" => Ok(TextDecorationStyleKind::Dotted),
+        "dashed" => Ok(TextDecorationStyleKind::Dashed),
+        "wavy" => Ok(TextDecorationStyleKind::Wavy),
+        other => Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: other.to_string(),
+        }),
+    }
 }
 
 fn parse_length_pair(value: &str, attribute: &str) -> Result<(LengthValue, LengthValue)> {

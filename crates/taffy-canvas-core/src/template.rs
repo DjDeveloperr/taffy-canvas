@@ -426,6 +426,35 @@ fn merge_inline_style(
     if attrs.contains_key("font-weight") {
         merged.font.weight = parsed.font.weight;
     }
+    if attrs.contains_key("font-style") {
+        merged.font.style = parsed.font.style;
+    }
+    if attrs.contains_key("line-height") {
+        merged.line_height = parsed.line_height;
+    }
+    if attrs.contains_key("letter-spacing") {
+        merged.letter_spacing = parsed.letter_spacing;
+    }
+    if attrs.contains_key("word-spacing") {
+        merged.word_spacing = parsed.word_spacing;
+    }
+    if attrs.contains_key("baseline-shift") {
+        merged.baseline_shift = parsed.baseline_shift;
+    }
+    if attrs.contains_key("text-decoration") {
+        merged.text_decoration.underline = parsed.text_decoration.underline;
+        merged.text_decoration.overline = parsed.text_decoration.overline;
+        merged.text_decoration.line_through = parsed.text_decoration.line_through;
+    }
+    if attrs.contains_key("text-decoration-color") {
+        merged.text_decoration.color = parsed.text_decoration.color;
+    }
+    if attrs.contains_key("text-decoration-style") {
+        merged.text_decoration.style = parsed.text_decoration.style;
+    }
+    if attrs.contains_key("text-decoration-thickness") {
+        merged.text_decoration.thickness_multiplier = parsed.text_decoration.thickness_multiplier;
+    }
     merged
 }
 

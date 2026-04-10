@@ -132,6 +132,7 @@ pub struct FontStyleSpec {
     pub family: String,
     pub size: u32,
     pub weight: u16,
+    pub style: FontSlant,
 }
 
 impl Default for FontStyleSpec {
@@ -140,6 +141,54 @@ impl Default for FontStyleSpec {
             family: "Arial".to_string(),
             size: 16,
             weight: 400,
+            style: FontSlant::Normal,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FontSlant {
+    #[default]
+    Normal,
+    Italic,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LineHeightValue {
+    Multiplier(f32),
+    Percent(f32),
+    Points(f32),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextDecorationStyleKind {
+    #[default]
+    Solid,
+    Double,
+    Dotted,
+    Dashed,
+    Wavy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextDecorationSpec {
+    pub underline: bool,
+    pub overline: bool,
+    pub line_through: bool,
+    pub color: Option<Color>,
+    pub style: TextDecorationStyleKind,
+    pub thickness_multiplier: f32,
+}
+
+impl Default for TextDecorationSpec {
+    fn default() -> Self {
+        Self {
+            underline: false,
+            overline: false,
+            line_through: false,
+            color: None,
+            style: TextDecorationStyleKind::Solid,
+            thickness_multiplier: 1.0,
         }
     }
 }
@@ -204,6 +253,11 @@ pub struct StyleSpec {
     pub border_radius: f32,
     pub color: Color,
     pub font: FontStyleSpec,
+    pub line_height: Option<LineHeightValue>,
+    pub letter_spacing: f32,
+    pub word_spacing: f32,
+    pub baseline_shift: f32,
+    pub text_decoration: TextDecorationSpec,
     pub text_align: TextAlign,
     pub image_fit: ImageFit,
 }
@@ -251,6 +305,11 @@ impl Default for StyleSpec {
             border_radius: 0.0,
             color: Color::BLACK,
             font: FontStyleSpec::default(),
+            line_height: None,
+            letter_spacing: 0.0,
+            word_spacing: 0.0,
+            baseline_shift: 0.0,
+            text_decoration: TextDecorationSpec::default(),
             text_align: TextAlign::Start,
             image_fit: ImageFit::Fill,
         }

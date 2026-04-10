@@ -1,15 +1,17 @@
 use skia_safe::{
     Color as SkColor, FontMgr, FontStyle,
     textlayout::{
-        FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, PlaceholderAlignment,
-        PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline, TextStyle, TypefaceFontProvider,
+        Decoration, FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle,
+        PlaceholderAlignment, PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline,
+        TextDecoration, TextDecorationStyle, TextStyle, TypefaceFontProvider,
     },
 };
 
 use crate::{
     asset::FontAsset,
     document::{
-        Color, FontStyleSpec, InlineFragment, InlineImageRun, StyleSpec, TextAlign, TextRun,
+        Color, FontSlant, FontStyleSpec, InlineFragment, InlineImageRun, LineHeightValue,
+        StyleSpec, TextAlign, TextDecorationStyleKind, TextRun,
     },
 };
 
@@ -192,16 +194,37 @@ fn text_style(style: &StyleSpec) -> TextStyle {
     text_style.set_color(to_skia_color(style.color));
     text_style.set_font_size(style.font.size as f32);
     text_style.set_font_families(&[style.font.family.as_str()]);
-    text_style.set_font_style(font_style(style.font.weight));
+    text_style.set_font_style(font_style(&style.font));
+    if let Some(height) = style.line_height {
+        text_style.set_height(line_height_ratio(height, style.font.size));
+        text_style.set_height_override(true);
+        text_style.set_half_leading(true);
+    }
+    if style.letter_spacing != 0.0 {
+        text_style.set_letter_spacing(style.letter_spacing);
+    }
+    if style.word_spacing != 0.0 {
+        text_style.set_word_spacing(style.word_spacing);
+    }
+    if style.baseline_shift != 0.0 {
+        text_style.set_baseline_shift(style.baseline_shift);
+    }
+    if has_decoration(style) {
+        text_style.set_decoration(&text_decoration(style));
+    }
     text_style
 }
 
-fn font_style(weight: u16) -> FontStyle {
-    let sk_weight = i32::from(weight.clamp(100, 900));
+fn font_style(style: &FontStyleSpec) -> FontStyle {
+    let slant = match style.style {
+        FontSlant::Normal => skia_safe::font_style::Slant::Upright,
+        FontSlant::Italic => skia_safe::font_style::Slant::Italic,
+    };
+    let sk_weight = i32::from(style.weight.clamp(100, 900));
     FontStyle::new(
         sk_weight.into(),
         skia_safe::font_style::Width::NORMAL,
-        skia_safe::font_style::Slant::Upright,
+        slant,
     )
 }
 
@@ -230,7 +253,7 @@ fn inline_image_placeholder(image: &InlineImageRun) -> PlaceholderStyle {
         height,
         PlaceholderAlignment::Baseline,
         TextBaseline::Alphabetic,
-        height,
+        (height + image.style.baseline_shift).max(0.0),
     )
 }
 
@@ -248,4 +271,46 @@ fn inline_image_height(image: &InlineImageRun) -> f32 {
         .height
         .and_then(|value| value.points())
         .unwrap_or(0.0)
+}
+
+fn line_height_ratio(value: LineHeightValue, font_size: u32) -> f32 {
+    match value {
+        LineHeightValue::Multiplier(multiplier) => multiplier.max(0.0),
+        LineHeightValue::Percent(percent) => percent.max(0.0),
+        LineHeightValue::Points(points) => {
+            let base = font_size.max(1) as f32;
+            (points / base).max(0.0)
+        }
+    }
+}
+
+fn has_decoration(style: &StyleSpec) -> bool {
+    style.text_decoration.underline
+        || style.text_decoration.overline
+        || style.text_decoration.line_through
+}
+
+fn text_decoration(style: &StyleSpec) -> Decoration {
+    let mut decoration = Decoration::default();
+    let mut decoration_type = TextDecoration::default();
+    if style.text_decoration.underline {
+        decoration_type |= TextDecoration::UNDERLINE;
+    }
+    if style.text_decoration.overline {
+        decoration_type |= TextDecoration::OVERLINE;
+    }
+    if style.text_decoration.line_through {
+        decoration_type |= TextDecoration::LINE_THROUGH;
+    }
+    decoration.ty = decoration_type;
+    decoration.style = match style.text_decoration.style {
+        TextDecorationStyleKind::Solid => TextDecorationStyle::Solid,
+        TextDecorationStyleKind::Double => TextDecorationStyle::Double,
+        TextDecorationStyleKind::Dotted => TextDecorationStyle::Dotted,
+        TextDecorationStyleKind::Dashed => TextDecorationStyle::Dashed,
+        TextDecorationStyleKind::Wavy => TextDecorationStyle::Wavy,
+    };
+    decoration.thickness_multiplier = style.text_decoration.thickness_multiplier.max(0.0);
+    decoration.color = to_skia_color(style.text_decoration.color.unwrap_or(style.color));
+    decoration
 }

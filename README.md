@@ -48,6 +48,7 @@ Implemented today:
   - flex grow
   - flex shrink
   - grid template rows/columns
+  - `repeat(...)`, `minmax(...)`, and `fit-content(...)` grid track syntax
   - grid auto rows/columns
   - grid auto flow
   - grid row/column placement
@@ -64,7 +65,7 @@ Implemented today:
   - border radius
   - `overflow="hidden"` clipping
   - image border-radius clipping
-  - text color, size, family, weight, alignment, inline images
+  - text color, size, family, weight, style, line height, spacing, baseline shift, alignment, inline images
   - image fit: `fill`, `contain`, `cover`
 - CI for build and test on macOS, Linux, and Windows
 - integration tests, golden-image fixtures, and benchmarks
@@ -73,9 +74,9 @@ Still not implemented:
 
 - GPU backend coverage beyond the current macOS Metal path
 - richer rich text semantics beyond spans and inline image placeholders
-  - links, decorations, per-fragment effects, and advanced baseline controls are still incomplete
+  - links, verified decoration rendering, and more advanced per-fragment effects are still incomplete
 - broader CSS/Taffy coverage beyond the current flex/grid subset
-  - named grid areas, repeat/minmax track syntax, overflow modes beyond `hidden`, and more CSS shorthands are still incomplete
+  - named grid areas, overflow modes beyond `hidden`, and more CSS shorthands are still incomplete
 
 ## XML Model
 
@@ -114,6 +115,7 @@ Rules:
 - `image` requires `src`
 - inline `image` nodes require explicit `width` and `height`
 - layout/style attributes include grid tracks and placement plus shorthands such as `size`, `inset`, `border`, `flex`, `place-items`, and `place-self`
+- text styling attributes include `font-style`, `line-height`, `letter-spacing`, `word-spacing`, and `baseline-shift`
 
 ## Rust Usage
 
