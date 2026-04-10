@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::OnceLock};
+use std::sync::OnceLock;
 
 use napi::{
     Error, Result, Status,
@@ -23,6 +23,29 @@ pub fn create_renderer(threads: Option<u32>) -> Result<External<Renderer>> {
 }
 
 #[napi]
+pub fn create_resources() -> External<MemoryAssetProvider> {
+    External::new(MemoryAssetProvider::default())
+}
+
+#[napi]
+pub fn add_resource_asset(
+    resources: &mut External<MemoryAssetProvider>,
+    key: String,
+    bytes: Buffer,
+) {
+    resources.insert_asset(key, bytes.to_vec());
+}
+
+#[napi]
+pub fn add_resource_font(
+    resources: &mut External<MemoryAssetProvider>,
+    family: String,
+    bytes: Buffer,
+) {
+    resources.register_font(family, bytes.to_vec());
+}
+
+#[napi]
 pub fn compile_template(xml: String) -> Result<External<Template>> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
     Ok(External::new(template))
@@ -31,7 +54,13 @@ pub fn compile_template(xml: String) -> Result<External<Template>> {
 #[napi]
 pub fn render_xml_sync(xml: String, params: Option<Value>) -> Result<Buffer> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
-    render_with_template(default_renderer(), &template, normalize_params(params)?).map(Buffer::from)
+    render_with_template(
+        default_renderer(),
+        &template,
+        normalize_params(params)?,
+        &MemoryAssetProvider::default(),
+    )
+    .map(Buffer::from)
 }
 
 #[napi]
@@ -41,7 +70,12 @@ pub async fn render_xml(xml: String, params: Option<Value>) -> Result<Buffer> {
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         let template = Template::compile(&xml).map_err(to_napi_error)?;
-        render_with_template(&renderer, &template, params)
+        render_with_template(
+            &renderer,
+            &template,
+            params,
+            &MemoryAssetProvider::default(),
+        )
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -58,6 +92,7 @@ pub fn render_compiled_sync(
         default_renderer(),
         template.as_ref(),
         normalize_params(params)?,
+        &MemoryAssetProvider::default(),
     )
     .map(Buffer::from)
 }
@@ -72,7 +107,12 @@ pub async fn render_compiled(
     let params = normalize_params(params)?;
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        render_with_template(&renderer, &template, params)
+        render_with_template(
+            &renderer,
+            &template,
+            params,
+            &MemoryAssetProvider::default(),
+        )
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -90,6 +130,7 @@ pub fn render_with_renderer_sync(
         renderer.as_ref(),
         template.as_ref(),
         normalize_params(params)?,
+        &MemoryAssetProvider::default(),
     )
     .map(Buffer::from)
 }
@@ -105,7 +146,84 @@ pub async fn render_with_renderer(
     let params = normalize_params(params)?;
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        render_with_template(&renderer, &template, params)
+        render_with_template(
+            &renderer,
+            &template,
+            params,
+            &MemoryAssetProvider::default(),
+        )
+    })
+    .await
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
+
+    Ok(Buffer::from(bytes))
+}
+
+#[napi]
+pub fn render_compiled_with_resources_sync(
+    resources: &External<MemoryAssetProvider>,
+    template: &External<Template>,
+    params: Option<Value>,
+) -> Result<Buffer> {
+    render_with_template(
+        default_renderer(),
+        template.as_ref(),
+        normalize_params(params)?,
+        resources.as_ref(),
+    )
+    .map(Buffer::from)
+}
+
+#[napi]
+pub async fn render_compiled_with_resources(
+    resources: &External<MemoryAssetProvider>,
+    template: &External<Template>,
+    params: Option<Value>,
+) -> Result<Buffer> {
+    let renderer = default_renderer().clone();
+    let template = template.as_ref().clone();
+    let resources = resources.as_ref().clone();
+    let params = normalize_params(params)?;
+
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        render_with_template(&renderer, &template, params, &resources)
+    })
+    .await
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
+
+    Ok(Buffer::from(bytes))
+}
+
+#[napi]
+pub fn render_with_renderer_and_resources_sync(
+    renderer: &External<Renderer>,
+    resources: &External<MemoryAssetProvider>,
+    template: &External<Template>,
+    params: Option<Value>,
+) -> Result<Buffer> {
+    render_with_template(
+        renderer.as_ref(),
+        template.as_ref(),
+        normalize_params(params)?,
+        resources.as_ref(),
+    )
+    .map(Buffer::from)
+}
+
+#[napi]
+pub async fn render_with_renderer_and_resources(
+    renderer: &External<Renderer>,
+    resources: &External<MemoryAssetProvider>,
+    template: &External<Template>,
+    params: Option<Value>,
+) -> Result<Buffer> {
+    let renderer = renderer.as_ref().clone();
+    let resources = resources.as_ref().clone();
+    let template = template.as_ref().clone();
+    let params = normalize_params(params)?;
+
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        render_with_template(&renderer, &template, params, &resources)
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -117,10 +235,10 @@ fn render_with_template(
     renderer: &Renderer,
     template: &Template,
     params: TemplateParams,
+    resources: &MemoryAssetProvider,
 ) -> Result<Vec<u8>> {
-    let assets = MemoryAssetProvider::new(BTreeMap::new());
     let output = renderer
-        .render(template, &params, &assets, RenderOptions::default())
+        .render(template, &params, resources, RenderOptions::default())
         .map_err(to_napi_error)?;
     Ok(output.png_bytes)
 }

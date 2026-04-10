@@ -2,11 +2,14 @@ use skia_safe::{
     Color as SkColor, FontMgr, FontStyle,
     textlayout::{
         FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign as SkTextAlign,
-        TextStyle,
+        TextStyle, TypefaceFontProvider,
     },
 };
 
-use crate::document::{Color, FontStyleSpec, StyleSpec, TextAlign};
+use crate::{
+    asset::FontAsset,
+    document::{Color, FontStyleSpec, StyleSpec, TextAlign},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMetrics {
@@ -58,12 +61,23 @@ thread_local! {
     };
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SkiaTextMeasurer;
+#[derive(Clone, Debug, Default)]
+pub struct SkiaTextMeasurer {
+    fonts: Vec<FontAsset>,
+}
 
 impl SkiaTextMeasurer {
+    pub fn with_fonts(fonts: Vec<FontAsset>) -> Self {
+        Self { fonts }
+    }
+
     pub fn build_paragraph(&self, text: &str, style: &StyleSpec) -> Paragraph {
-        FONT_COLLECTION.with(|collection| build_paragraph(collection, text, style))
+        if self.fonts.is_empty() {
+            FONT_COLLECTION.with(|collection| build_paragraph(collection, text, style))
+        } else {
+            let collection = build_font_collection(&self.fonts);
+            build_paragraph(&collection, text, style)
+        }
     }
 }
 
@@ -112,4 +126,18 @@ fn font_style(weight: u16) -> FontStyle {
 
 fn to_skia_color(color: Color) -> SkColor {
     SkColor::from_argb(color.a, color.r, color.g, color.b)
+}
+
+fn build_font_collection(fonts: &[FontAsset]) -> FontCollection {
+    let mut collection = FontCollection::new();
+    collection.set_default_font_manager(FontMgr::default(), None::<&str>);
+
+    let mut provider = TypefaceFontProvider::new();
+    for font in fonts {
+        if let Some(typeface) = FontMgr::new().new_from_data(&font.bytes, None) {
+            provider.register_typeface(typeface, Some(font.family.as_str()));
+        }
+    }
+    collection.set_asset_font_manager(Some(provider.into()));
+    collection
 }

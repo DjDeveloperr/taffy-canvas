@@ -5,7 +5,7 @@ use skia_safe::{
 
 use crate::{
     Result,
-    asset::AssetProvider,
+    asset::ResourceProvider,
     document::{Color, ImageFit, LayoutNode, LayoutNodeKind},
     error::TaffyCanvasError,
     layout::layout_document,
@@ -30,7 +30,7 @@ pub struct RenderOutput {
 pub fn render_document(
     document: &crate::document::Document,
     measurer: &SkiaTextMeasurer,
-    assets: &dyn AssetProvider,
+    assets: &dyn ResourceProvider,
     _options: RenderOptions,
 ) -> Result<RenderOutput> {
     let layout = layout_document(document, measurer)?;
@@ -68,11 +68,11 @@ pub fn render_document(
 pub fn render_template(
     template: &Template,
     params: &TemplateParams,
-    assets: &dyn AssetProvider,
+    assets: &dyn ResourceProvider,
     options: RenderOptions,
 ) -> Result<RenderOutput> {
     let document = template.instantiate(params)?;
-    let measurer = SkiaTextMeasurer::default();
+    let measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
     render_document(&document, &measurer, assets, options)
 }
 
@@ -80,7 +80,7 @@ fn draw_node(
     canvas: &skia_safe::Canvas,
     node: &LayoutNode,
     measurer: &SkiaTextMeasurer,
-    assets: &dyn AssetProvider,
+    assets: &dyn ResourceProvider,
 ) -> Result<()> {
     draw_box(canvas, node);
 
@@ -145,7 +145,7 @@ fn draw_image(
     canvas: &skia_safe::Canvas,
     node: &LayoutNode,
     src: &str,
-    assets: &dyn AssetProvider,
+    assets: &dyn ResourceProvider,
 ) -> Result<()> {
     let bytes = assets.load(src)?;
     let image = Image::from_encoded(Data::new_copy(&bytes))

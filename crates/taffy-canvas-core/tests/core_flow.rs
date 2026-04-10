@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, sync::Arc};
 
-use skia_safe::{Color as SkColor, EncodedImageFormat, Paint, Rect, surfaces};
+use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    Color, FixedTextMeasurer, LayoutNodeKind, MemoryAssetProvider, RenderOptions, Renderer,
-    SkiaTextMeasurer, StyleSpec, Template, TemplateParams, TextMeasurer, layout_document,
+    Color, FixedTextMeasurer, FontAsset, LayoutNodeKind, MemoryAssetProvider, RenderOptions,
+    Renderer, SkiaTextMeasurer, StyleSpec, Template, TemplateParams, TextMeasurer, layout_document,
     render_template,
 };
 
@@ -203,6 +203,35 @@ fn render_outputs_expected_pixels_for_image_assets() {
             a: 255
         }
     );
+}
+
+#[test]
+fn registered_font_alias_matches_direct_system_font_metrics() {
+    let typeface = FontMgr::new()
+        .legacy_make_typeface(Some("monospace"), FontStyle::default())
+        .or_else(|| FontMgr::new().legacy_make_typeface(Some("serif"), FontStyle::default()))
+        .expect("system font available");
+    let family_name = typeface.family_name();
+    let (bytes, _) = typeface.to_font_data().expect("font bytes");
+
+    let mut style = StyleSpec::default();
+    style.font.family = "TaffyCanvasTestMono".to_string();
+    let text = "iiiiWWWWiiiiWWWW";
+
+    let direct_style = StyleSpec {
+        font: taffy_canvas_core::FontStyleSpec {
+            family: family_name,
+            ..style.font.clone()
+        },
+        ..style.clone()
+    };
+
+    let direct = SkiaTextMeasurer::default().measure(text, &direct_style, Some(1000.0));
+    let aliased = SkiaTextMeasurer::with_fonts(vec![FontAsset::new("TaffyCanvasTestMono", bytes)])
+        .measure(text, &style, Some(1000.0));
+
+    assert!((aliased.width - direct.width).abs() < 0.5);
+    assert!((aliased.height - direct.height).abs() < 0.5);
 }
 
 fn pixel(bytes: &[u8], width: usize, x: usize, y: usize) -> Color {

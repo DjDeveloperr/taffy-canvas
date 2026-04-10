@@ -4,7 +4,7 @@ use rayon::ThreadPoolBuilder;
 
 use crate::{
     Result,
-    asset::AssetProvider,
+    asset::ResourceProvider,
     error::TaffyCanvasError,
     render::{RenderOptions, RenderOutput, render_document},
     template::{Template, TemplateParams},
@@ -18,7 +18,6 @@ pub struct Renderer {
 
 struct RendererInner {
     pool: rayon::ThreadPool,
-    measurer: SkiaTextMeasurer,
 }
 
 impl Renderer {
@@ -28,10 +27,7 @@ impl Renderer {
             .build()
             .map_err(|error| TaffyCanvasError::Render(error.to_string()))?;
         Ok(Self {
-            inner: Arc::new(RendererInner {
-                pool,
-                measurer: SkiaTextMeasurer::default(),
-            }),
+            inner: Arc::new(RendererInner { pool }),
         })
     }
 
@@ -39,12 +35,13 @@ impl Renderer {
         &self,
         template: &Template,
         params: &TemplateParams,
-        assets: &dyn AssetProvider,
+        assets: &dyn ResourceProvider,
         options: RenderOptions,
     ) -> Result<RenderOutput> {
         self.inner.pool.install(|| {
             let document = template.instantiate(params)?;
-            render_document(&document, &self.inner.measurer, assets, options)
+            let measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
+            render_document(&document, &measurer, assets, options)
         })
     }
 }

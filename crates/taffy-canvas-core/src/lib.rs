@@ -9,7 +9,7 @@ mod style;
 mod template;
 mod text;
 
-pub use asset::{AssetProvider, MemoryAssetProvider};
+pub use asset::{AssetProvider, FontAsset, MemoryAssetProvider, ResourceProvider};
 pub use document::{
     Color, Document, FontStyleSpec, ImageFit, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node,
     NodeKind, PositionKind, RenderedDocument, StyleSpec, TextAlign,
