@@ -176,6 +176,16 @@ Node package maintenance commands live in [`package.json`](/Users/dj/Developer/t
 - `npm run test:smoke`
 - `npm run pack:current`
 
+Publishing is automated from GitHub releases via [release-npm.yml](/Users/dj/Developer/taffy-canvas/.github/workflows/release-npm.yml). On a published GitHub release, CI verifies that the release tag version matches [`crates/taffy-canvas-node/package.json`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-node/package.json), publishes each platform package, then publishes the main `taffy-canvas` package.
+
+To use npm trusted publishing, configure the same workflow filename on npm for:
+
+- `taffy-canvas`
+- `taffy-canvas-darwin-arm64`
+- `taffy-canvas-darwin-x64`
+- `taffy-canvas-linux-x64-gnu`
+- `taffy-canvas-win32-x64-msvc`
+
 ## Performance
 
 Current local benchmark on this machine:
