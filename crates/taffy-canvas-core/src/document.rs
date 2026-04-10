@@ -46,6 +46,14 @@ pub enum PositionKind {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DisplayKind {
+    #[default]
+    Flex,
+    Block,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum TextAlign {
     #[default]
     Start,
@@ -103,9 +111,12 @@ pub struct StyleSpec {
     pub flex_grow: f32,
     pub flex_shrink: f32,
     pub gap: Option<f32>,
+    pub row_gap: Option<f32>,
+    pub column_gap: Option<f32>,
     pub padding: Insets,
     pub margin: Insets,
     pub inset: Insets,
+    pub display: DisplayKind,
     pub position: PositionKind,
     pub overflow_hidden: bool,
     pub background: Option<Color>,
@@ -138,9 +149,12 @@ impl Default for StyleSpec {
             flex_grow: 0.0,
             flex_shrink: 1.0,
             gap: None,
+            row_gap: None,
+            column_gap: None,
             padding: Insets::default(),
             margin: Insets::default(),
             inset: Insets::default(),
+            display: DisplayKind::Flex,
             position: PositionKind::Relative,
             overflow_hidden: false,
             background: None,

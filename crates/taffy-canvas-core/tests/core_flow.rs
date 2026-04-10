@@ -163,6 +163,56 @@ fn layout_supports_flex_wrap() {
 }
 
 #[test]
+fn layout_supports_row_and_column_gap() {
+    let template = Template::compile(
+        r##"
+        <view width="30" height="20" flex-direction="row" flex-wrap="wrap" align-content="start" row-gap="3" column-gap="5" background="#ffffff">
+          <view width="10" height="4" background="#ff0000" />
+          <view width="10" height="4" background="#00ff00" />
+          <view width="10" height="4" background="#0000ff" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 0.0);
+    assert_eq!(laid_out.root.children[1].layout.x, 15.0);
+    assert_eq!(laid_out.root.children[2].layout.x, 0.0);
+    assert_eq!(laid_out.root.children[2].layout.y, 7.0);
+}
+
+#[test]
+fn layout_supports_display_none() {
+    let template = Template::compile(
+        r##"
+        <view width="40" height="12" flex-direction="row" column-gap="4" background="#ffffff">
+          <view width="10" height="6" background="#ff0000" />
+          <view width="10" height="6" display="none" background="#00ff00" />
+          <view width="10" height="6" background="#0000ff" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 0.0);
+    assert_eq!(laid_out.root.children[1].layout.width, 0.0);
+    assert_eq!(laid_out.root.children[1].layout.height, 0.0);
+    assert_eq!(laid_out.root.children[2].layout.x, 14.0);
+}
+
+#[test]
 fn layout_supports_align_self_override() {
     let template = Template::compile(
         r##"
@@ -182,6 +232,30 @@ fn layout_supports_align_self_override() {
 
     assert_eq!(laid_out.root.children[0].layout.y, 0.0);
     assert_eq!(laid_out.root.children[1].layout.y, 30.0);
+}
+
+#[test]
+fn layout_supports_flex_start_aliases() {
+    let template = Template::compile(
+        r##"
+        <view width="80" height="40" flex-direction="row" justify-content="flex-start" align-items="flex-start" background="#ffffff">
+          <view width="10" height="10" background="#ff0000" />
+          <view width="10" height="10" background="#00ff00" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 0.0);
+    assert_eq!(laid_out.root.children[1].layout.x, 10.0);
+    assert_eq!(laid_out.root.children[0].layout.y, 0.0);
+    assert_eq!(laid_out.root.children[1].layout.y, 0.0);
 }
 
 #[test]
@@ -470,6 +544,46 @@ fn render_clips_images_to_border_radius() {
             r: 255,
             g: 0,
             b: 0,
+            a: 255
+        }
+    );
+}
+
+#[test]
+fn render_skips_display_none_nodes() {
+    let template = Template::compile(
+        r##"
+        <view width="20" height="10" background="#102030">
+          <view width="8" height="8" left="1" top="1" position="absolute" background="#ff0000" />
+          <view width="8" height="8" left="11" top="1" position="absolute" display="none" background="#00ff00" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions::default(),
+    )
+    .expect("render succeeds");
+
+    assert_eq!(
+        pixel(&output.pixels_rgba, 20, 3, 3),
+        Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 20, 13, 3),
+        Color {
+            r: 16,
+            g: 32,
+            b: 48,
             a: 255
         }
     );

@@ -29,6 +29,7 @@ Implemented today:
 - filesystem-backed resource loading in the Rust core
 - decoded image caching inside reusable resource handles
 - layout support for:
+  - `display`: `flex`, `block`, `none`
   - absolute and fixed positioning
   - flex direction
   - flex wrap
@@ -41,7 +42,7 @@ Implemented today:
   - flex shrink
   - aspect ratio
   - width, height, min/max sizes
-  - gap
+  - `gap`, `row-gap`, `column-gap`
   - per-side padding and margin
 - rendering support for:
   - backgrounds
@@ -59,6 +60,7 @@ Still not implemented:
 - GPU-backed rendering path
 - inline images and richer rich text flow beyond styled spans
 - broader CSS/Taffy coverage beyond the current subset
+  - percentages, auto margins, and additional box-model/layout shorthands are still incomplete
 - pooled prepared-image caches and deeper render-time reuse
 
 ## XML Model
@@ -88,6 +90,7 @@ Rules:
 - `text` can use inner text or a `value` attribute
 - `text` can contain nested `<span>` nodes for inline styling
 - `image` requires `src`
+- layout/style attributes currently support `display="none"` plus per-axis gap controls like `row-gap` and `column-gap`
 
 ## Rust Usage
 

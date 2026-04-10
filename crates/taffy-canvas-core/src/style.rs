@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     Result,
-    document::{FontStyleSpec, ImageFit, Insets, PositionKind, StyleSpec, TextAlign},
+    document::{DisplayKind, FontStyleSpec, ImageFit, Insets, PositionKind, StyleSpec, TextAlign},
     error::TaffyCanvasError,
 };
 
@@ -55,6 +55,19 @@ pub fn style_from_attrs(
             "max-width" => style.max_width = Some(parse_number(value, key)?),
             "max-height" => style.max_height = Some(parse_number(value, key)?),
             "aspect-ratio" => style.aspect_ratio = Some(parse_ratio(value, key)?),
+            "display" => {
+                style.display = match value.trim() {
+                    "flex" => DisplayKind::Flex,
+                    "block" => DisplayKind::Block,
+                    "none" => DisplayKind::None,
+                    other => {
+                        return Err(TaffyCanvasError::InvalidAttribute {
+                            attribute: key.clone(),
+                            message: other.to_string(),
+                        });
+                    }
+                }
+            }
             "flex-direction" => style.flex_direction = Some(value.trim().to_string()),
             "flex-wrap" => style.flex_wrap = Some(value.trim().to_string()),
             "justify-content" => style.justify_content = Some(value.trim().to_string()),
@@ -65,6 +78,8 @@ pub fn style_from_attrs(
             "flex-grow" => style.flex_grow = parse_number(value, key)?,
             "flex-shrink" => style.flex_shrink = parse_number(value, key)?,
             "gap" => style.gap = Some(parse_number(value, key)?),
+            "row-gap" => style.row_gap = Some(parse_number(value, key)?),
+            "column-gap" => style.column_gap = Some(parse_number(value, key)?),
             "padding" => style.padding = parse_insets(value, key)?,
             "padding-top" => style.padding.top = parse_number(value, key)?,
             "padding-right" => style.padding.right = parse_number(value, key)?,

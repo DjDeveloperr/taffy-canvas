@@ -1,16 +1,17 @@
 use taffy::{
     NodeId,
     prelude::{
-        AlignContent, AlignItems, AlignSelf, AvailableSpace, Dimension, FlexDirection, FlexWrap,
-        JustifyContent, LengthPercentage, LengthPercentageAuto, Rect, Size, Style, TaffyTree,
+        AlignContent, AlignItems, AlignSelf, AvailableSpace, Dimension, Display, FlexDirection,
+        FlexWrap, JustifyContent, LengthPercentage, LengthPercentageAuto, Rect, Size, Style,
+        TaffyTree,
     },
 };
 
 use crate::{
     Result,
     document::{
-        Document, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node, NodeKind, PositionKind,
-        RenderedDocument, StyleSpec,
+        DisplayKind, Document, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node, NodeKind,
+        PositionKind, RenderedDocument, StyleSpec,
     },
     error::TaffyCanvasError,
     text::TextMeasurer,
@@ -189,6 +190,11 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             .unwrap_or_else(Dimension::auto),
     };
     output.aspect_ratio = style.aspect_ratio;
+    output.display = match style.display {
+        DisplayKind::Flex => Display::Flex,
+        DisplayKind::Block => Display::Block,
+        DisplayKind::None => Display::None,
+    };
     output.margin = rect_auto(style.margin);
     output.padding = rect_length(style.padding);
     output.border = rect_length(Insets {
@@ -204,12 +210,12 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     };
     output.item_is_replaced = is_replaced;
 
-    if let Some(gap) = style.gap {
-        output.gap = Size {
-            width: LengthPercentage::length(gap),
-            height: LengthPercentage::length(gap),
-        };
-    }
+    let column_gap = style.column_gap.or(style.gap).unwrap_or(0.0);
+    let row_gap = style.row_gap.or(style.gap).unwrap_or(0.0);
+    output.gap = Size {
+        width: LengthPercentage::length(column_gap),
+        height: LengthPercentage::length(row_gap),
+    };
     if let Some(direction) = &style.flex_direction {
         output.flex_direction = match direction.as_str() {
             "row" => FlexDirection::Row,
@@ -230,6 +236,7 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             "center" => JustifyContent::Center,
             "end" => JustifyContent::End,
             "flex-end" => JustifyContent::FlexEnd,
+            "flex-start" => JustifyContent::FlexStart,
             "space-between" => JustifyContent::SpaceBetween,
             "space-around" => JustifyContent::SpaceAround,
             "space-evenly" => JustifyContent::SpaceEvenly,
@@ -241,6 +248,7 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             "center" => AlignContent::Center,
             "end" => AlignContent::End,
             "flex-end" => AlignContent::FlexEnd,
+            "flex-start" => AlignContent::FlexStart,
             "stretch" => AlignContent::Stretch,
             "space-between" => AlignContent::SpaceBetween,
             "space-around" => AlignContent::SpaceAround,
@@ -253,6 +261,7 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
             "center" => AlignItems::Center,
             "end" => AlignItems::End,
             "flex-end" => AlignItems::FlexEnd,
+            "flex-start" => AlignItems::FlexStart,
             "baseline" => AlignItems::Baseline,
             "stretch" => AlignItems::Stretch,
             _ => AlignItems::Start,
