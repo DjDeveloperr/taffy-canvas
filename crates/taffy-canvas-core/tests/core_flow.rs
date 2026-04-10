@@ -576,6 +576,35 @@ fn render_outputs_expected_pixels_for_image_assets() {
 }
 
 #[test]
+fn memory_asset_provider_reuses_decoded_images() {
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let first = taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch")
+        .expect("first decoded image");
+    let second = taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch")
+        .expect("second decoded image");
+
+    assert_eq!(assets.decoded_image_count(), 1);
+    assert_eq!(first.unique_id(), second.unique_id());
+}
+
+#[test]
+fn memory_asset_provider_invalidates_decoded_images_when_asset_changes() {
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let first = taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch")
+        .expect("first decoded image");
+    assets.insert_asset("swatch", sample_solid_png(2, 1, 0, 255, 0));
+    let second = taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch")
+        .expect("second decoded image");
+
+    assert_eq!(assets.decoded_image_count(), 1);
+    assert_ne!(first.unique_id(), second.unique_id());
+}
+
+#[test]
 fn registered_font_alias_matches_direct_system_font_metrics() {
     let typeface = FontMgr::new()
         .legacy_make_typeface(Some("monospace"), FontStyle::default())

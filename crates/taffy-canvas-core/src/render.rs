@@ -1,6 +1,6 @@
 use skia_safe::{
-    AlphaType, Color as SkColor, ColorType, Data, EncodedImageFormat, Image, ImageInfo, Paint,
-    PaintStyle, RRect, Rect, SamplingOptions, surfaces,
+    AlphaType, Color as SkColor, ColorType, EncodedImageFormat, ImageInfo, Paint, PaintStyle,
+    RRect, Rect, SamplingOptions, surfaces,
 };
 
 use crate::{
@@ -162,9 +162,7 @@ fn draw_image(
     src: &str,
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
-    let bytes = assets.load(src)?;
-    let image = Image::from_encoded(Data::new_copy(&bytes))
-        .ok_or_else(|| TaffyCanvasError::Render(format!("failed to decode image `{src}`")))?;
+    let image = assets.load_image(src)?;
     let rect = Rect::from_xywh(
         node.layout.x,
         node.layout.y,

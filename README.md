@@ -25,6 +25,7 @@ Implemented today:
 - CPU rendering path
 - reusable renderer handles for parallel async rendering
 - reusable resource handles for image assets and custom font aliases
+- decoded image caching inside reusable resource handles
 - layout support for:
   - absolute and fixed positioning
   - flex direction
@@ -49,7 +50,7 @@ Implemented today:
   - text color, size, family, weight, alignment
   - image fit: `fill`, `contain`, `cover`
 - CI for build and test on macOS and Linux
-- integration tests and benchmarks
+- integration tests, golden-image fixtures, and benchmarks
 
 Still not implemented:
 
@@ -168,6 +169,8 @@ Current local benchmark on this machine:
 
 - `template_compile`: about `3.6 µs`
 - `prepared_render`: about `0.95 ms`
+- `prepared_render_cached_image`: about `0.97 ms`
+- `prepared_render_cold_image`: about `1.21 ms`
 
 These numbers come from:
 
@@ -183,6 +186,12 @@ Run the full workspace:
 cargo fmt --all
 cargo check --workspace --all-targets
 cargo test --workspace
+```
+
+Refresh checked-in golden fixtures when render output intentionally changes:
+
+```bash
+TAFFY_CANVAS_UPDATE_GOLDENS=1 cargo test -p taffy-canvas-core golden_
 ```
 
 CI is defined in [`ci.yml`](/Users/dj/Developer/taffy-canvas/.github/workflows/ci.yml).
