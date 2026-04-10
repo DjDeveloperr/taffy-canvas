@@ -17,8 +17,8 @@ use skia_safe::gpu;
 
 use crate::{
     Result,
-    asset::ResourceProvider,
-    document::{Color, ImageFit, LayoutNode, LayoutNodeKind},
+    asset::{PreparedImageRequest, ResourceProvider},
+    document::{Color, InlineFragment, LayoutNode, LayoutNodeKind},
     error::TaffyCanvasError,
     layout::layout_document,
     template::{Template, TemplateParams},
@@ -274,7 +274,9 @@ fn draw_node(
 
     match &node.kind {
         LayoutNodeKind::View => {}
-        LayoutNodeKind::Text { runs, .. } => draw_text(canvas, node, runs, measurer)?,
+        LayoutNodeKind::Text { fragments, .. } => {
+            draw_text(canvas, node, fragments, measurer, assets)?
+        }
         LayoutNodeKind::Image { src } => draw_image(canvas, node, src, assets)?,
     }
 
@@ -324,12 +326,20 @@ fn draw_box(canvas: &skia_safe::Canvas, node: &LayoutNode) {
 fn draw_text(
     canvas: &skia_safe::Canvas,
     node: &LayoutNode,
-    runs: &[crate::document::TextRun],
+    fragments: &[InlineFragment],
     measurer: &SkiaTextMeasurer,
+    assets: &dyn ResourceProvider,
 ) -> Result<()> {
-    let mut paragraph = measurer.build_paragraph(runs, &node.style);
-    paragraph.layout(node.layout.width.max(1.0));
-    paragraph.paint(canvas, (node.layout.x, node.layout.y));
+    let mut scene = measurer.build_paragraph_scene(fragments, &node.style);
+    scene.paragraph.layout(node.layout.width.max(1.0));
+    scene
+        .paragraph
+        .paint(canvas, (node.layout.x, node.layout.y));
+    let placeholders = scene.paragraph.get_rects_for_placeholders();
+    for (image, placeholder) in scene.inline_images.iter().zip(placeholders.iter()) {
+        let rect = placeholder.rect.with_offset((node.layout.x, node.layout.y));
+        draw_image_rect(canvas, image.src.as_str(), &image.style, rect, assets)?;
+    }
     Ok(())
 }
 
@@ -339,39 +349,13 @@ fn draw_image(
     src: &str,
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
-    let image = assets.load_image(src)?;
     let rect = Rect::from_xywh(
         node.layout.x,
         node.layout.y,
         node.layout.width,
         node.layout.height,
     );
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-    let sampling = SamplingOptions::default();
-
-    match node.style.image_fit {
-        ImageFit::Fill => {
-            canvas.draw_image_rect_with_sampling_options(image, None, rect, sampling, &paint);
-        }
-        ImageFit::Contain | ImageFit::Cover => {
-            let scale_x = node.layout.width / image.width() as f32;
-            let scale_y = node.layout.height / image.height() as f32;
-            let scale = match node.style.image_fit {
-                ImageFit::Contain => scale_x.min(scale_y),
-                ImageFit::Cover => scale_x.max(scale_y),
-                ImageFit::Fill => unreachable!(),
-            };
-            let draw_width = image.width() as f32 * scale;
-            let draw_height = image.height() as f32 * scale;
-            let draw_x = node.layout.x + (node.layout.width - draw_width) * 0.5;
-            let draw_y = node.layout.y + (node.layout.height - draw_height) * 0.5;
-            let draw_rect = Rect::from_xywh(draw_x, draw_y, draw_width, draw_height);
-            canvas.draw_image_rect_with_sampling_options(image, None, draw_rect, sampling, &paint);
-        }
-    }
-
-    Ok(())
+    draw_image_rect(canvas, src, &node.style, rect, assets)
 }
 
 fn to_skia_color(color: Color) -> SkColor {
@@ -391,4 +375,24 @@ fn clip_node(canvas: &skia_safe::Canvas, node: &LayoutNode) {
     } else {
         canvas.clip_rect(rect, None, Some(true));
     }
+}
+
+fn draw_image_rect(
+    canvas: &skia_safe::Canvas,
+    src: &str,
+    style: &crate::document::StyleSpec,
+    rect: Rect,
+    assets: &dyn ResourceProvider,
+) -> Result<()> {
+    let image = assets.load_prepared_image(&PreparedImageRequest {
+        key: src,
+        width: rect.width().round().max(1.0) as u32,
+        height: rect.height().round().max(1.0) as u32,
+        fit: style.image_fit,
+    })?;
+    let mut paint = Paint::default();
+    paint.set_anti_alias(true);
+    let sampling = SamplingOptions::default();
+    canvas.draw_image_rect_with_sampling_options(image, None, rect, sampling, &paint);
+    Ok(())
 }

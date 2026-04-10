@@ -7,7 +7,7 @@ use quick_xml::{
 
 use crate::{
     Result,
-    document::{Document, Node, NodeKind, StyleSpec, TextRun},
+    document::{Document, InlineFragment, InlineImageRun, Node, NodeKind, StyleSpec, TextRun},
     error::TaffyCanvasError,
     style::style_from_attrs,
 };
@@ -31,6 +31,7 @@ struct TemplateNode {
 enum TemplateInline {
     Text(CompiledString),
     Span(TemplateNode),
+    Image(TemplateNode),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -174,19 +175,19 @@ impl TemplateNode {
                     });
                 }
 
-                let (value, runs) = if let Some(value) = evaluated_attrs.get("value") {
+                let (value, fragments) = if let Some(value) = evaluated_attrs.get("value") {
                     (
                         value.clone(),
-                        vec![TextRun {
+                        vec![InlineFragment::Text(TextRun {
                             text: value.clone(),
                             style: style.clone(),
-                        }],
+                        })],
                     )
                 } else {
-                    flatten_inline_runs(&self.inline, params, &style)?
+                    flatten_inline_fragments(&self.inline, params, &style)?
                 };
 
-                NodeKind::Text { value, runs }
+                NodeKind::Text { value, fragments }
             }
             TemplateTag::Image => {
                 if !self.children.is_empty() || !self.inline.is_empty() {
@@ -283,13 +284,13 @@ impl CompiledString {
     }
 }
 
-fn flatten_inline_runs(
+fn flatten_inline_fragments(
     inline: &[TemplateInline],
     params: &TemplateParams,
     base_style: &StyleSpec,
-) -> Result<(String, Vec<TextRun>)> {
+) -> Result<(String, Vec<InlineFragment>)> {
     let mut value = String::new();
-    let mut runs = Vec::new();
+    let mut fragments = Vec::new();
 
     for item in inline {
         match item {
@@ -297,21 +298,26 @@ fn flatten_inline_runs(
                 let rendered = text.render(params)?;
                 if !rendered.is_empty() {
                     value.push_str(&rendered);
-                    runs.push(TextRun {
+                    fragments.push(InlineFragment::Text(TextRun {
                         text: rendered,
                         style: base_style.clone(),
-                    });
+                    }));
                 }
             }
             TemplateInline::Span(span) => {
-                let (span_value, span_runs) = span.instantiate_span(params, base_style)?;
+                let (span_value, span_fragments) = span.instantiate_span(params, base_style)?;
                 value.push_str(&span_value);
-                runs.extend(span_runs);
+                fragments.extend(span_fragments);
+            }
+            TemplateInline::Image(image) => {
+                let inline_image = image.instantiate_inline_image(params)?;
+                value.push('\u{FFFC}');
+                fragments.push(InlineFragment::Image(inline_image));
             }
         }
     }
 
-    Ok((value, runs))
+    Ok((value, fragments))
 }
 
 impl TemplateNode {
@@ -319,7 +325,7 @@ impl TemplateNode {
         &self,
         params: &TemplateParams,
         inherited_style: &StyleSpec,
-    ) -> Result<(String, Vec<TextRun>)> {
+    ) -> Result<(String, Vec<InlineFragment>)> {
         if self.tag != TemplateTag::Span {
             return Err(TaffyCanvasError::InvalidNode {
                 node: "span".to_string(),
@@ -353,14 +359,52 @@ impl TemplateNode {
         if let Some(value) = evaluated_attrs.get("value") {
             return Ok((
                 value.clone(),
-                vec![TextRun {
+                vec![InlineFragment::Text(TextRun {
                     text: value.clone(),
                     style: merged_style,
-                }],
+                })],
             ));
         }
 
-        flatten_inline_runs(&self.inline, params, &merged_style)
+        flatten_inline_fragments(&self.inline, params, &merged_style)
+    }
+
+    fn instantiate_inline_image(&self, params: &TemplateParams) -> Result<InlineImageRun> {
+        if self.tag != TemplateTag::Image {
+            return Err(TaffyCanvasError::InvalidNode {
+                node: tag_name(self.tag).to_string(),
+                message: "only image nodes can be instantiated inline".to_string(),
+            });
+        }
+
+        if !self.children.is_empty() || !self.inline.is_empty() {
+            return Err(TaffyCanvasError::InvalidNode {
+                node: "image".to_string(),
+                message: "inline image nodes cannot contain children".to_string(),
+            });
+        }
+
+        let evaluated_attrs = self
+            .attrs
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), value.render(params)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
+        let (style, _) = style_from_attrs(&evaluated_attrs)?;
+        let src = evaluated_attrs.get("src").cloned().ok_or_else(|| {
+            TaffyCanvasError::InvalidAttribute {
+                attribute: "src".to_string(),
+                message: "image nodes require src".to_string(),
+            }
+        })?;
+
+        if style.width.is_none() || style.height.is_none() {
+            return Err(TaffyCanvasError::InvalidAttribute {
+                attribute: "width/height".to_string(),
+                message: "inline image nodes require explicit width and height".to_string(),
+            });
+        }
+
+        Ok(InlineImageRun { src, style })
     }
 }
 
@@ -407,10 +451,13 @@ fn attach_node(
             (TemplateTag::Text | TemplateTag::Span, TemplateTag::Span) => {
                 parent.inline.push(TemplateInline::Span(node));
             }
+            (TemplateTag::Text | TemplateTag::Span, TemplateTag::Image) => {
+                parent.inline.push(TemplateInline::Image(node));
+            }
             (TemplateTag::Text | TemplateTag::Span, _) => {
                 return Err(TaffyCanvasError::InvalidNode {
                     node: tag_name(node.tag).to_string(),
-                    message: "only span nodes may appear inside text/span".to_string(),
+                    message: "only span and image nodes may appear inside text/span".to_string(),
                 });
             }
             _ => parent.children.push(node),

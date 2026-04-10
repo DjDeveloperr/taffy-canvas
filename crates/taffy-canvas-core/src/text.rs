@@ -1,14 +1,16 @@
 use skia_safe::{
     Color as SkColor, FontMgr, FontStyle,
     textlayout::{
-        FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextAlign as SkTextAlign,
-        TextStyle, TypefaceFontProvider,
+        FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, PlaceholderAlignment,
+        PlaceholderStyle, TextAlign as SkTextAlign, TextBaseline, TextStyle, TypefaceFontProvider,
     },
 };
 
 use crate::{
     asset::FontAsset,
-    document::{Color, FontStyleSpec, StyleSpec, TextAlign, TextRun},
+    document::{
+        Color, FontStyleSpec, InlineFragment, InlineImageRun, StyleSpec, TextAlign, TextRun,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -17,20 +19,26 @@ pub struct TextMetrics {
     pub height: f32,
 }
 
+#[derive(Debug)]
+pub struct ParagraphScene {
+    pub paragraph: Paragraph,
+    pub inline_images: Vec<InlineImageRun>,
+}
+
 pub trait TextMeasurer: Send + Sync {
-    fn measure_runs(
+    fn measure_fragments(
         &self,
-        runs: &[TextRun],
+        fragments: &[InlineFragment],
         style: &StyleSpec,
         max_width: Option<f32>,
     ) -> TextMetrics;
 
     fn measure(&self, text: &str, style: &StyleSpec, max_width: Option<f32>) -> TextMetrics {
-        let run = TextRun {
+        let run = InlineFragment::Text(TextRun {
             text: text.to_string(),
             style: style.clone(),
-        };
-        self.measure_runs(std::slice::from_ref(&run), style, max_width)
+        });
+        self.measure_fragments(std::slice::from_ref(&run), style, max_width)
     }
 }
 
@@ -50,15 +58,28 @@ impl Default for FixedTextMeasurer {
 }
 
 impl TextMeasurer for FixedTextMeasurer {
-    fn measure_runs(
+    fn measure_fragments(
         &self,
-        runs: &[TextRun],
+        fragments: &[InlineFragment],
         style: &StyleSpec,
         max_width: Option<f32>,
     ) -> TextMetrics {
-        let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
-        let font_scale = style.font.size as f32 / FontStyleSpec::default().size as f32;
-        let raw_width = text.chars().count() as f32 * self.char_width * font_scale;
+        let default_font_size = FontStyleSpec::default().size as f32;
+        let mut raw_width = 0.0;
+        let mut tallest_fragment = self.line_height * (style.font.size as f32 / default_font_size);
+        for fragment in fragments {
+            match fragment {
+                InlineFragment::Text(run) => {
+                    let font_scale = run.style.font.size as f32 / default_font_size;
+                    raw_width += run.text.chars().count() as f32 * self.char_width * font_scale;
+                    tallest_fragment = tallest_fragment.max(self.line_height * font_scale);
+                }
+                InlineFragment::Image(image) => {
+                    raw_width += inline_image_width(image);
+                    tallest_fragment = tallest_fragment.max(inline_image_height(image));
+                }
+            }
+        }
         let width = max_width.map(|w| raw_width.min(w)).unwrap_or(raw_width);
         let lines = if let Some(max_width) = max_width {
             (raw_width / max_width).ceil().max(1.0)
@@ -67,7 +88,7 @@ impl TextMeasurer for FixedTextMeasurer {
         };
         TextMetrics {
             width,
-            height: self.line_height * font_scale * lines,
+            height: tallest_fragment * lines,
         }
     }
 }
@@ -90,38 +111,42 @@ impl SkiaTextMeasurer {
         Self { fonts }
     }
 
-    pub fn build_paragraph(&self, runs: &[TextRun], style: &StyleSpec) -> Paragraph {
+    pub fn build_paragraph_scene(
+        &self,
+        fragments: &[InlineFragment],
+        style: &StyleSpec,
+    ) -> ParagraphScene {
         if self.fonts.is_empty() {
-            FONT_COLLECTION.with(|collection| build_paragraph(collection, runs, style))
+            FONT_COLLECTION.with(|collection| build_paragraph_scene(collection, fragments, style))
         } else {
             let collection = build_font_collection(&self.fonts);
-            build_paragraph(&collection, runs, style)
+            build_paragraph_scene(&collection, fragments, style)
         }
     }
 }
 
 impl TextMeasurer for SkiaTextMeasurer {
-    fn measure_runs(
+    fn measure_fragments(
         &self,
-        runs: &[TextRun],
+        fragments: &[InlineFragment],
         style: &StyleSpec,
         max_width: Option<f32>,
     ) -> TextMetrics {
         let width_constraint = max_width.unwrap_or(100_000.0).max(1.0);
-        let mut paragraph = self.build_paragraph(runs, style);
-        paragraph.layout(width_constraint);
+        let mut scene = self.build_paragraph_scene(fragments, style);
+        scene.paragraph.layout(width_constraint);
         TextMetrics {
-            width: paragraph.longest_line(),
-            height: paragraph.height(),
+            width: scene.paragraph.longest_line(),
+            height: scene.paragraph.height(),
         }
     }
 }
 
-pub fn build_paragraph(
+pub fn build_paragraph_scene(
     collection: &FontCollection,
-    runs: &[TextRun],
+    fragments: &[InlineFragment],
     style: &StyleSpec,
-) -> Paragraph {
+) -> ParagraphScene {
     let mut paragraph_style = ParagraphStyle::new();
     paragraph_style.set_text_style(&text_style(style));
     paragraph_style.set_text_align(match style.text_align {
@@ -131,19 +156,35 @@ pub fn build_paragraph(
     });
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, collection.clone());
-    if runs.is_empty() {
+    let mut inline_images = Vec::new();
+    if fragments.is_empty() {
         builder.push_style(&text_style(style));
         builder.pop();
-        return builder.build();
+        return ParagraphScene {
+            paragraph: builder.build(),
+            inline_images,
+        };
     }
 
-    for run in runs {
-        let run_style = text_style(&run.style);
-        builder.push_style(&run_style);
-        builder.add_text(&run.text);
-        builder.pop();
+    for fragment in fragments {
+        match fragment {
+            InlineFragment::Text(run) => {
+                let run_style = text_style(&run.style);
+                builder.push_style(&run_style);
+                builder.add_text(&run.text);
+                builder.pop();
+            }
+            InlineFragment::Image(image) => {
+                inline_images.push(image.clone());
+                let placeholder = inline_image_placeholder(image);
+                builder.add_placeholder(&placeholder);
+            }
+        }
     }
-    builder.build()
+    ParagraphScene {
+        paragraph: builder.build(),
+        inline_images,
+    }
 }
 
 fn text_style(style: &StyleSpec) -> TextStyle {
@@ -180,4 +221,31 @@ fn build_font_collection(fonts: &[FontAsset]) -> FontCollection {
     }
     collection.set_asset_font_manager(Some(provider.into()));
     collection
+}
+
+fn inline_image_placeholder(image: &InlineImageRun) -> PlaceholderStyle {
+    let height = inline_image_height(image).max(1.0);
+    PlaceholderStyle::new(
+        inline_image_width(image).max(1.0),
+        height,
+        PlaceholderAlignment::Baseline,
+        TextBaseline::Alphabetic,
+        height,
+    )
+}
+
+fn inline_image_width(image: &InlineImageRun) -> f32 {
+    image
+        .style
+        .width
+        .and_then(|value| value.points())
+        .unwrap_or(0.0)
+}
+
+fn inline_image_height(image: &InlineImageRun) -> f32 {
+    image
+        .style
+        .height
+        .and_then(|value| value.points())
+        .unwrap_or(0.0)
 }

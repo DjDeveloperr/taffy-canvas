@@ -8,10 +8,10 @@ use std::{
 
 use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, LayoutNodeKind,
-    MemoryAssetProvider, RenderBackend, RenderBackendPreference, RenderOptions, Renderer,
-    ResourceProvider, SkiaTextMeasurer, StyleSpec, Template, TemplateParams, TextMeasurer,
-    layout_document, render_template,
+    Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, InlineFragment,
+    LayoutNodeKind, MemoryAssetProvider, RenderBackend, RenderBackendPreference, RenderOptions,
+    Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, Template, TemplateParams,
+    TextMeasurer, layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -60,15 +60,24 @@ fn template_flattens_inline_spans_into_runs() {
         .instantiate(&params)
         .expect("document instantiates");
     match &document.root.children[0].kind {
-        taffy_canvas_core::NodeKind::Text { value, runs } => {
+        taffy_canvas_core::NodeKind::Text { value, fragments } => {
             assert_eq!(value, "Hello Red Canvas");
-            assert_eq!(runs.len(), 3);
-            assert_eq!(runs[0].text, "Hello ");
-            assert_eq!(runs[1].text, "Red");
-            assert_eq!(runs[2].text, " Canvas");
-            assert_eq!(runs[0].style.color, Color::WHITE);
+            assert_eq!(fragments.len(), 3);
+            let InlineFragment::Text(run0) = &fragments[0] else {
+                panic!("expected text fragment");
+            };
+            let InlineFragment::Text(run1) = &fragments[1] else {
+                panic!("expected text fragment");
+            };
+            let InlineFragment::Text(run2) = &fragments[2] else {
+                panic!("expected text fragment");
+            };
+            assert_eq!(run0.text, "Hello ");
+            assert_eq!(run1.text, "Red");
+            assert_eq!(run2.text, " Canvas");
+            assert_eq!(run0.style.color, Color::WHITE);
             assert_eq!(
-                runs[1].style.color,
+                run1.style.color,
                 Color {
                     r: 255,
                     g: 0,
@@ -76,6 +85,32 @@ fn template_flattens_inline_spans_into_runs() {
                     a: 255
                 }
             );
+        }
+        other => panic!("expected text node, got {other:?}"),
+    }
+}
+
+#[test]
+fn template_supports_inline_images_inside_text() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="120">
+          <text color="#ffffff">HP <image src="orb" width="12" height="12" fit="contain" /> Ready</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    match &document.root.children[0].kind {
+        taffy_canvas_core::NodeKind::Text { value, fragments } => {
+            assert_eq!(value, "HP \u{FFFC} Ready");
+            assert_eq!(fragments.len(), 3);
+            assert!(matches!(&fragments[0], InlineFragment::Text(_)));
+            assert!(matches!(&fragments[1], InlineFragment::Image(image) if image.src == "orb"));
+            assert!(matches!(&fragments[2], InlineFragment::Text(_)));
         }
         other => panic!("expected text node, got {other:?}"),
     }
@@ -389,6 +424,104 @@ fn layout_supports_flex_basis_and_shrink() {
     assert_eq!(laid_out.root.children[0].layout.width, 60.0);
     assert_eq!(laid_out.root.children[1].layout.width, 40.0);
     assert_eq!(laid_out.root.children[1].layout.x, 60.0);
+}
+
+#[test]
+fn layout_supports_grid_tracks_and_line_placement() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="80" display="grid" grid-template-columns="30 1fr 20" grid-template-rows="24 1fr" background="#ffffff">
+          <view grid-column="2" grid-row="1" background="#ff0000" />
+          <view grid-column="3" grid-row="2" background="#00ff00" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 30.0);
+    assert_eq!(laid_out.root.children[0].layout.y, 0.0);
+    assert_eq!(laid_out.root.children[0].layout.width, 70.0);
+    assert_eq!(laid_out.root.children[0].layout.height, 24.0);
+    assert_eq!(laid_out.root.children[1].layout.x, 100.0);
+    assert_eq!(laid_out.root.children[1].layout.y, 24.0);
+    assert_eq!(laid_out.root.children[1].layout.width, 20.0);
+    assert_eq!(laid_out.root.children[1].layout.height, 56.0);
+}
+
+#[test]
+fn layout_supports_place_items_and_place_self() {
+    let template = Template::compile(
+        r##"
+        <view width="80" height="80" display="grid" grid-template-columns="1fr" grid-template-rows="1fr" place-items="center center" background="#ffffff">
+          <view width="20" height="10" place-self="end end" background="#ff0000" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 60.0);
+    assert_eq!(laid_out.root.children[0].layout.y, 70.0);
+}
+
+#[test]
+fn layout_supports_size_inset_border_and_flex_shorthand() {
+    let template = Template::compile(
+        r##"
+        <view width="100" height="40" flex-direction="row" background="#ffffff">
+          <view size="20 12" flex="1 1 10" border="2 solid #ff0000" inset="1 2 3 4" background="#00ff00" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let child = &document.root.children[0];
+    assert_eq!(
+        child.style.width.and_then(|value| value.points()),
+        Some(20.0)
+    );
+    assert_eq!(
+        child.style.height.and_then(|value| value.points()),
+        Some(12.0)
+    );
+    assert_eq!(child.style.flex_grow, 1.0);
+    assert_eq!(child.style.flex_shrink, 1.0);
+    assert_eq!(
+        child.style.flex_basis.and_then(|value| value.points()),
+        Some(10.0)
+    );
+    assert_eq!(child.style.border_width, 2.0);
+    assert_eq!(
+        child.style.border_color,
+        Some(Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        })
+    );
+    assert_eq!(
+        child.style.inset.left,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(4.0))
+    );
+    assert_eq!(
+        child.style.inset.top,
+        taffy_canvas_core::LengthAutoValue::Length(taffy_canvas_core::LengthValue::Points(1.0))
+    );
 }
 
 #[test]
@@ -904,6 +1037,38 @@ fn render_outputs_expected_pixels_for_image_assets() {
 }
 
 #[test]
+fn render_outputs_expected_pixels_for_inline_image_fragments() {
+    let template = Template::compile(
+        r##"
+        <view width="24" height="16" background="#102030">
+          <text color="#ffffff" font-size="12">HP <image src="swatch" width="8" height="8" fit="fill" /> OK</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_solid_png(8, 8, 255, 0, 0));
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("render succeeds");
+
+    let red_pixels = output
+        .pixels_rgba
+        .chunks_exact(4)
+        .filter(|pixel| pixel[0] == 255 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255)
+        .count();
+    assert!(red_pixels >= 16);
+}
+
+#[test]
 fn memory_asset_provider_reuses_decoded_images() {
     let mut assets = MemoryAssetProvider::default();
     assets.insert_asset("swatch", sample_image_png());
@@ -914,6 +1079,36 @@ fn memory_asset_provider_reuses_decoded_images() {
         .expect("second decoded image");
 
     assert_eq!(assets.decoded_image_count(), 1);
+    assert_eq!(first.unique_id(), second.unique_id());
+}
+
+#[test]
+fn memory_asset_provider_reuses_prepared_images() {
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let first = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+        },
+    )
+    .expect("first prepared image");
+    let second = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+        },
+    )
+    .expect("second prepared image");
+
+    assert_eq!(assets.prepared_image_count(), 1);
     assert_eq!(first.unique_id(), second.unique_id());
 }
 
@@ -930,6 +1125,7 @@ fn memory_asset_provider_invalidates_decoded_images_when_asset_changes() {
 
     assert_eq!(assets.decoded_image_count(), 1);
     assert_ne!(first.unique_id(), second.unique_id());
+    assert_eq!(assets.prepared_image_count(), 0);
 }
 
 #[test]
@@ -977,6 +1173,29 @@ fn filesystem_resource_provider_loads_assets_and_reuses_decoded_images() {
 
     assert_eq!(assets.decoded_image_count(), 1);
     assert_eq!(first.unique_id(), second.unique_id());
+
+    let prepared = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch.png",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Contain,
+        },
+    )
+    .expect("prepared image");
+    let prepared_again = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch.png",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Contain,
+        },
+    )
+    .expect("prepared image reused");
+    assert_eq!(assets.prepared_image_count(), 1);
+    assert_eq!(prepared.unique_id(), prepared_again.unique_id());
 
     fs::remove_dir_all(&dir).expect("cleanup");
 }

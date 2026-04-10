@@ -10,12 +10,13 @@ mod template;
 mod text;
 
 pub use asset::{
-    AssetProvider, FileSystemResourceProvider, FontAsset, MemoryAssetProvider, ResourceProvider,
+    AssetProvider, FileSystemResourceProvider, FontAsset, MemoryAssetProvider, PreparedImageKey,
+    PreparedImageRequest, ResourceProvider,
 };
 pub use document::{
-    Color, DisplayKind, Document, FontStyleSpec, ImageFit, Insets, LayoutBox, LayoutNode,
-    LayoutNodeKind, LengthAutoValue, LengthValue, Node, NodeKind, PositionKind, RenderedDocument,
-    StyleSpec, TextAlign, TextRun,
+    Color, DisplayKind, Document, FontStyleSpec, ImageFit, InlineFragment, InlineImageRun, Insets,
+    LayoutBox, LayoutNode, LayoutNodeKind, LengthAutoValue, LengthValue, Node, NodeKind,
+    PositionKind, RenderedDocument, StyleSpec, TextAlign, TextRun,
 };
 pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;

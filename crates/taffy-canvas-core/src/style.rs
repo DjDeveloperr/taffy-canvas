@@ -62,6 +62,7 @@ pub fn style_from_attrs(
                 style.display = match value.trim() {
                     "flex" => DisplayKind::Flex,
                     "block" => DisplayKind::Block,
+                    "grid" => DisplayKind::Grid,
                     "none" => DisplayKind::None,
                     other => {
                         return Err(TaffyCanvasError::InvalidAttribute {
@@ -77,12 +78,52 @@ pub fn style_from_attrs(
             "align-content" => style.align_content = Some(value.trim().to_string()),
             "align-items" => style.align_items = Some(value.trim().to_string()),
             "align-self" => style.align_self = Some(value.trim().to_string()),
+            "justify-items" => style.justify_items = Some(value.trim().to_string()),
+            "justify-self" => style.justify_self = Some(value.trim().to_string()),
+            "place-content" => {
+                let (justify, align) = parse_pair(value);
+                style.justify_content = Some(justify.to_string());
+                style.align_content = Some(align.to_string());
+            }
+            "place-items" => {
+                let (justify, align) = parse_pair(value);
+                style.justify_items = Some(justify.to_string());
+                style.align_items = Some(align.to_string());
+            }
+            "place-self" => {
+                let (justify, align) = parse_pair(value);
+                style.justify_self = Some(justify.to_string());
+                style.align_self = Some(align.to_string());
+            }
             "flex-basis" => style.flex_basis = Some(parse_length(value, key)?),
+            "flex" => parse_flex_shorthand(&mut style, value, key)?,
             "flex-grow" => style.flex_grow = parse_number(value, key)?,
             "flex-shrink" => style.flex_shrink = parse_number(value, key)?,
+            "grid-template-columns" => style.grid_template_columns = Some(value.trim().to_string()),
+            "grid-template-rows" => style.grid_template_rows = Some(value.trim().to_string()),
+            "grid-auto-columns" => style.grid_auto_columns = Some(value.trim().to_string()),
+            "grid-auto-rows" => style.grid_auto_rows = Some(value.trim().to_string()),
+            "grid-auto-flow" => style.grid_auto_flow = Some(value.trim().to_string()),
+            "grid-column" => style.grid_column = Some(value.trim().to_string()),
+            "grid-row" => style.grid_row = Some(value.trim().to_string()),
             "gap" => style.gap = Some(parse_length(value, key)?),
             "row-gap" => style.row_gap = Some(parse_length(value, key)?),
             "column-gap" => style.column_gap = Some(parse_length(value, key)?),
+            "size" => {
+                let (width, height) = parse_length_pair(value, key)?;
+                style.width = Some(width);
+                style.height = Some(height);
+            }
+            "min-size" => {
+                let (width, height) = parse_length_pair(value, key)?;
+                style.min_width = Some(width);
+                style.min_height = Some(height);
+            }
+            "max-size" => {
+                let (width, height) = parse_length_pair(value, key)?;
+                style.max_width = Some(width);
+                style.max_height = Some(height);
+            }
             "padding" => style.padding = parse_length_insets(value, key)?,
             "padding-top" => style.padding.top = parse_length(value, key)?,
             "padding-right" => style.padding.right = parse_length(value, key)?,
@@ -93,6 +134,7 @@ pub fn style_from_attrs(
             "margin-right" => style.margin.right = parse_length_auto(value, key)?,
             "margin-bottom" => style.margin.bottom = parse_length_auto(value, key)?,
             "margin-left" => style.margin.left = parse_length_auto(value, key)?,
+            "inset" => style.inset = parse_length_auto_insets(value, key)?,
             "left" => style.inset.left = parse_length_auto(value, key)?,
             "right" => style.inset.right = parse_length_auto(value, key)?,
             "top" => style.inset.top = parse_length_auto(value, key)?,
@@ -124,6 +166,7 @@ pub fn style_from_attrs(
             }
             "background" | "background-color" => style.background = Some(parse_color(value)?),
             "border-color" => style.border_color = Some(parse_color(value)?),
+            "border" => parse_border_shorthand(&mut style, value, key)?,
             "border-width" => style.border_width = parse_number(value, key)?,
             "radius" | "border-radius" => style.border_radius = parse_number(value, key)?,
             "color" => style.color = parse_color(value)?,
@@ -303,4 +346,92 @@ fn parse_hex(chunk: &str, source: &str) -> Result<u8> {
         attribute: "color".to_string(),
         message: source.to_string(),
     })
+}
+
+fn parse_pair(value: &str) -> (&str, &str) {
+    let mut parts = value.split_whitespace();
+    let first = parts.next().unwrap_or("start");
+    let second = parts.next().unwrap_or(first);
+    (first, second)
+}
+
+fn parse_length_pair(value: &str, attribute: &str) -> Result<(LengthValue, LengthValue)> {
+    let mut parts = value.split_whitespace();
+    let first = parts
+        .next()
+        .ok_or_else(|| TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        })?;
+    let second = parts.next().unwrap_or(first);
+    Ok((
+        parse_length(first, attribute)?,
+        parse_length(second, attribute)?,
+    ))
+}
+
+fn parse_flex_shorthand(style: &mut StyleSpec, value: &str, attribute: &str) -> Result<()> {
+    let trimmed = value.trim();
+    if trimmed == "none" {
+        style.flex_grow = 0.0;
+        style.flex_shrink = 0.0;
+        style.flex_basis = Some(LengthValue::Points(0.0));
+        return Ok(());
+    }
+
+    if trimmed == "auto" {
+        style.flex_grow = 1.0;
+        style.flex_shrink = 1.0;
+        style.flex_basis = Some(LengthValue::Points(0.0));
+        return Ok(());
+    }
+
+    let parts = trimmed.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        [single] => {
+            if let Ok(number) = single.parse::<f32>() {
+                style.flex_grow = number;
+                style.flex_shrink = 1.0;
+                style.flex_basis = Some(LengthValue::Points(0.0));
+                Ok(())
+            } else {
+                style.flex_basis = Some(parse_length(single, attribute)?);
+                Ok(())
+            }
+        }
+        [grow, shrink, basis] => {
+            style.flex_grow = parse_number(grow, attribute)?;
+            style.flex_shrink = parse_number(shrink, attribute)?;
+            style.flex_basis = Some(parse_length(basis, attribute)?);
+            Ok(())
+        }
+        _ => Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        }),
+    }
+}
+
+fn parse_border_shorthand(style: &mut StyleSpec, value: &str, attribute: &str) -> Result<()> {
+    for part in value.split_whitespace() {
+        if style.border_color.is_none()
+            && let Ok(color) = parse_color(part)
+        {
+            style.border_color = Some(color);
+            continue;
+        }
+
+        if style.border_width == 0.0
+            && let Ok(width) = parse_number(part, attribute)
+        {
+            style.border_width = width;
+            continue;
+        }
+
+        if matches!(part, "solid" | "dashed" | "dotted" | "double" | "none") {
+            continue;
+        }
+    }
+
+    Ok(())
 }

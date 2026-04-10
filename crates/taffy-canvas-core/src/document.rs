@@ -107,6 +107,7 @@ pub enum DisplayKind {
     #[default]
     Flex,
     Block,
+    Grid,
     None,
 }
 
@@ -118,7 +119,7 @@ pub enum TextAlign {
     End,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ImageFit {
     #[default]
     Fill,
@@ -150,6 +151,18 @@ pub struct TextRun {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct InlineImageRun {
+    pub src: String,
+    pub style: StyleSpec,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum InlineFragment {
+    Text(TextRun),
+    Image(InlineImageRun),
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct StyleSpec {
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
@@ -164,9 +177,18 @@ pub struct StyleSpec {
     pub align_content: Option<String>,
     pub align_items: Option<String>,
     pub align_self: Option<String>,
+    pub justify_items: Option<String>,
+    pub justify_self: Option<String>,
     pub flex_basis: Option<LengthValue>,
     pub flex_grow: f32,
     pub flex_shrink: f32,
+    pub grid_template_columns: Option<String>,
+    pub grid_template_rows: Option<String>,
+    pub grid_auto_columns: Option<String>,
+    pub grid_auto_rows: Option<String>,
+    pub grid_auto_flow: Option<String>,
+    pub grid_column: Option<String>,
+    pub grid_row: Option<String>,
     pub gap: Option<LengthValue>,
     pub row_gap: Option<LengthValue>,
     pub column_gap: Option<LengthValue>,
@@ -202,9 +224,18 @@ impl Default for StyleSpec {
             align_content: None,
             align_items: None,
             align_self: None,
+            justify_items: None,
+            justify_self: None,
             flex_basis: None,
             flex_grow: 0.0,
             flex_shrink: 1.0,
+            grid_template_columns: None,
+            grid_template_rows: None,
+            grid_auto_columns: None,
+            grid_auto_rows: None,
+            grid_auto_flow: None,
+            grid_column: None,
+            grid_row: None,
             gap: None,
             row_gap: None,
             column_gap: None,
@@ -229,8 +260,13 @@ impl Default for StyleSpec {
 #[derive(Clone, Debug, PartialEq)]
 pub enum NodeKind {
     View,
-    Text { value: String, runs: Vec<TextRun> },
-    Image { src: String },
+    Text {
+        value: String,
+        fragments: Vec<InlineFragment>,
+    },
+    Image {
+        src: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -260,8 +296,13 @@ pub struct LayoutBox {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayoutNodeKind {
     View,
-    Text { value: String, runs: Vec<TextRun> },
-    Image { src: String },
+    Text {
+        value: String,
+        fragments: Vec<InlineFragment>,
+    },
+    Image {
+        src: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
