@@ -205,6 +205,49 @@ fn layout_supports_flex_basis_and_shrink() {
 }
 
 #[test]
+fn layout_supports_per_side_padding_attributes() {
+    let template = Template::compile(
+        r##"
+        <view width="100" height="60" padding-left="12" padding-top="8" background="#ffffff">
+          <view width="20" height="10" background="#ff0000" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 12.0);
+    assert_eq!(laid_out.root.children[0].layout.y, 8.0);
+}
+
+#[test]
+fn layout_supports_per_side_margin_attributes() {
+    let template = Template::compile(
+        r##"
+        <view width="100" height="20" flex-direction="row" background="#ffffff">
+          <view width="10" height="10" margin-right="6" background="#ff0000" />
+          <view width="10" height="10" margin-left="4" background="#00ff00" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.x, 0.0);
+    assert_eq!(laid_out.root.children[1].layout.x, 20.0);
+}
+
+#[test]
 fn render_outputs_expected_pixels_for_background_and_absolute_child() {
     let template = Template::compile(
         r##"
