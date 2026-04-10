@@ -161,6 +161,50 @@ fn layout_supports_aspect_ratio() {
 }
 
 #[test]
+fn layout_supports_aspect_ratio_fraction_syntax() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="80" flex-direction="row" align-items="start" background="#ffffff">
+          <view width="32" aspect-ratio="16 / 9" background="#ff0000" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.width, 32.0);
+    assert!((laid_out.root.children[0].layout.height - 18.0).abs() < 0.001);
+}
+
+#[test]
+fn layout_supports_flex_basis_and_shrink() {
+    let template = Template::compile(
+        r##"
+        <view width="100" height="20" flex-direction="row" background="#ffffff">
+          <view width="40" height="10" flex-basis="60" flex-shrink="0" background="#ff0000" />
+          <view width="40" height="10" flex-basis="60" flex-shrink="1" background="#00ff00" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    assert_eq!(laid_out.root.children[0].layout.width, 60.0);
+    assert_eq!(laid_out.root.children[1].layout.width, 40.0);
+    assert_eq!(laid_out.root.children[1].layout.x, 60.0);
+}
+
+#[test]
 fn render_outputs_expected_pixels_for_background_and_absolute_child() {
     let template = Template::compile(
         r##"
