@@ -22,6 +22,7 @@ The Node binding supports:
 - file-backed resource loading into reusable resource handles via `addResourceAssetFromFile()` and `addResourceFontFromFile()`
 - prepared template handles via `prepareTemplate()` and `prepareTemplateWithRenderer()`
 - repeated async renders through `renderPrepared()`
+- the same XML renderer surface as Rust, including inline text spans, inline images, and grid layouts
 - optional backend selection on every render call: `"auto"`, `"cpu"`, or `"gpu"`
 
 Backend behavior:

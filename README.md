@@ -21,6 +21,7 @@ Implemented today:
 - specialized XML parsing for `view`, `text`, and `image`
 - template compilation plus `{{param}}` substitution
 - inline rich text spans inside `text` via nested `<span>` nodes
+- inline images inside `text` using Skia paragraph placeholders
 - Skia-backed text measurement used for both layout and paint
 - CPU rendering path
 - Metal-backed GPU rendering on macOS, with CPU fallback through `RenderBackendPreference::Auto`
@@ -29,30 +30,41 @@ Implemented today:
 - reusable resource handles for image assets and custom font aliases
 - filesystem-backed resource loading in the Rust core
 - decoded image caching inside reusable resource handles
+- prepared-image caching for fitted/scaled image variants inside reusable resource handles
 - layout support for:
-  - `display`: `flex`, `block`, `none`
+  - `display`: `flex`, `block`, `grid`, `none`
   - absolute and fixed positioning
   - flex direction
   - flex wrap
+  - `flex` shorthand
   - justify content
+  - justify items
   - align items
   - align content
   - align self
+  - justify self
+  - `place-content`, `place-items`, and `place-self`
   - flex basis
   - flex grow
   - flex shrink
+  - grid template rows/columns
+  - grid auto rows/columns
+  - grid auto flow
+  - grid row/column placement
   - aspect ratio
-  - absolute lengths and percentages for width, height, min/max sizes, insets, padding, margin, and flex basis
+  - `size`, `min-size`, and `max-size` shorthands
+  - absolute lengths and percentages for width, height, min/max sizes, insets, padding, margin, grid tracks, and flex basis
   - auto margins
   - `gap`, `row-gap`, `column-gap`
   - per-side padding and margin
+  - `inset` shorthand
 - rendering support for:
   - backgrounds
-  - borders
+  - borders and `border` shorthand
   - border radius
   - `overflow="hidden"` clipping
   - image border-radius clipping
-  - text color, size, family, weight, alignment
+  - text color, size, family, weight, alignment, inline images
   - image fit: `fill`, `contain`, `cover`
 - CI for build and test on macOS, Linux, and Windows
 - integration tests, golden-image fixtures, and benchmarks
@@ -60,10 +72,10 @@ Implemented today:
 Still not implemented:
 
 - GPU backend coverage beyond the current macOS Metal path
-- inline images and richer rich text flow beyond styled spans
-- broader CSS/Taffy coverage beyond the current subset
-  - additional layout/display modes and more CSS shorthands are still incomplete
-- pooled prepared-image caches and deeper render-time reuse
+- richer rich text semantics beyond spans and inline image placeholders
+  - links, decorations, per-fragment effects, and advanced baseline controls are still incomplete
+- broader CSS/Taffy coverage beyond the current flex/grid subset
+  - named grid areas, repeat/minmax track syntax, overflow modes beyond `hidden`, and more CSS shorthands are still incomplete
 
 ## XML Model
 
@@ -84,15 +96,24 @@ Inline styled spans are also supported inside `text`:
 </text>
 ```
 
+Inline images are supported inside `text` as well:
+
+```xml
+<text color="#ffffff">
+  HP <image src="orb" width="12" height="12" fit="contain" /> Ready
+</text>
+```
+
 Rules:
 
 - the root element must be `<view>`
 - root width and height are required and must be absolute lengths
 - template params use `{{name}}`
 - `text` can use inner text or a `value` attribute
-- `text` can contain nested `<span>` nodes for inline styling
+- `text` can contain nested `<span>` nodes for inline styling and inline `<image>` nodes
 - `image` requires `src`
-- layout/style attributes currently support `display="none"` plus per-axis gap controls like `row-gap` and `column-gap`
+- inline `image` nodes require explicit `width` and `height`
+- layout/style attributes include grid tracks and placement plus shorthands such as `size`, `inset`, `border`, `flex`, `place-items`, and `place-self`
 
 ## Rust Usage
 
@@ -196,6 +217,8 @@ The Node binding currently exposes:
 - `renderWithRendererAndResources()` / `renderWithRendererAndResourcesSync()`
 - `renderPrepared()` / `renderPreparedSync()`
 
+The same XML surface is available from Node, including inline text spans, inline images, grid layouts, and reusable image/font resources.
+
 All render entrypoints accept an optional backend string:
 
 - `"auto"`: prefer GPU where available and fall back to CPU
@@ -290,7 +313,7 @@ CI is defined in [`ci.yml`](/Users/dj/Developer/taffy-canvas/.github/workflows/c
 
 ## Near-Term Roadmap
 
-- richer text flow and inline content
+- richer text semantics on top of the current span + inline-image flow
 - broader style coverage
 - GPU backend coverage on Linux and Windows
 - broader asset/resource abstractions on the Node side beyond file-to-memory helpers
