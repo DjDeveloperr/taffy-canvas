@@ -115,8 +115,12 @@ fn collect_layout(
     let layout = tree
         .layout(node_id)
         .map_err(|error| TaffyCanvasError::Layout(error.to_string()))?;
-    let x = parent_x + layout.location.x;
-    let y = parent_y + layout.location.y;
+    let (x, y) = match node.style.position {
+        PositionKind::Fixed => (layout.location.x, layout.location.y),
+        PositionKind::Relative | PositionKind::Absolute => {
+            (parent_x + layout.location.x, parent_y + layout.location.y)
+        }
+    };
 
     let children = node
         .children

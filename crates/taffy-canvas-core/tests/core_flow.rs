@@ -59,6 +59,38 @@ fn layout_computes_absolute_offsets() {
 }
 
 #[test]
+fn layout_computes_fixed_offsets_from_document_root() {
+    let template = Template::compile(
+        r##"
+        <view width="240" height="180" background="#ffffff">
+          <view width="120" height="80" position="absolute" left="40" top="30" background="#222222">
+            <view width="50" height="20" position="fixed" left="12" top="14" background="#ff0000">
+              <view width="10" height="6" position="absolute" left="5" top="4" background="#0000ff" />
+            </view>
+          </view>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    let fixed = &laid_out.root.children[0].children[0];
+    assert_eq!(fixed.layout.x, 12.0);
+    assert_eq!(fixed.layout.y, 14.0);
+    assert_eq!(fixed.layout.width, 50.0);
+    assert_eq!(fixed.layout.height, 20.0);
+
+    let nested_absolute = &fixed.children[0];
+    assert_eq!(nested_absolute.layout.x, 17.0);
+    assert_eq!(nested_absolute.layout.y, 18.0);
+}
+
+#[test]
 fn render_outputs_expected_pixels_for_background_and_absolute_child() {
     let template = Template::compile(
         r##"
@@ -94,6 +126,46 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
             r: 255,
             g: 51,
             b: 102,
+            a: 255
+        }
+    );
+}
+
+#[test]
+fn render_outputs_expected_pixels_for_nested_fixed_child() {
+    let template = Template::compile(
+        r##"
+        <view width="80" height="80" background="#101820">
+          <view width="40" height="40" position="absolute" left="24" top="24" background="#00ff00" />
+          <view width="16" height="16" position="fixed" left="4" top="6" background="#ff8800" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions::default(),
+    )
+    .expect("render succeeds");
+
+    assert_eq!(
+        pixel(&output.pixels_rgba, 80, 6, 8),
+        Color {
+            r: 255,
+            g: 136,
+            b: 0,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 80, 26, 26),
+        Color {
+            r: 0,
+            g: 255,
+            b: 0,
             a: 255
         }
     );
