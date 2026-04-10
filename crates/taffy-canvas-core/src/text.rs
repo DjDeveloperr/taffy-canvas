@@ -8,7 +8,7 @@ use skia_safe::{
 
 use crate::{
     asset::FontAsset,
-    document::{Color, FontStyleSpec, StyleSpec, TextAlign},
+    document::{Color, FontStyleSpec, StyleSpec, TextAlign, TextRun},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -18,7 +18,20 @@ pub struct TextMetrics {
 }
 
 pub trait TextMeasurer: Send + Sync {
-    fn measure(&self, text: &str, style: &StyleSpec, max_width: Option<f32>) -> TextMetrics;
+    fn measure_runs(
+        &self,
+        runs: &[TextRun],
+        style: &StyleSpec,
+        max_width: Option<f32>,
+    ) -> TextMetrics;
+
+    fn measure(&self, text: &str, style: &StyleSpec, max_width: Option<f32>) -> TextMetrics {
+        let run = TextRun {
+            text: text.to_string(),
+            style: style.clone(),
+        };
+        self.measure_runs(std::slice::from_ref(&run), style, max_width)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -37,7 +50,13 @@ impl Default for FixedTextMeasurer {
 }
 
 impl TextMeasurer for FixedTextMeasurer {
-    fn measure(&self, text: &str, style: &StyleSpec, max_width: Option<f32>) -> TextMetrics {
+    fn measure_runs(
+        &self,
+        runs: &[TextRun],
+        style: &StyleSpec,
+        max_width: Option<f32>,
+    ) -> TextMetrics {
+        let text = runs.iter().map(|run| run.text.as_str()).collect::<String>();
         let font_scale = style.font.size as f32 / FontStyleSpec::default().size as f32;
         let raw_width = text.chars().count() as f32 * self.char_width * font_scale;
         let width = max_width.map(|w| raw_width.min(w)).unwrap_or(raw_width);
@@ -71,20 +90,25 @@ impl SkiaTextMeasurer {
         Self { fonts }
     }
 
-    pub fn build_paragraph(&self, text: &str, style: &StyleSpec) -> Paragraph {
+    pub fn build_paragraph(&self, runs: &[TextRun], style: &StyleSpec) -> Paragraph {
         if self.fonts.is_empty() {
-            FONT_COLLECTION.with(|collection| build_paragraph(collection, text, style))
+            FONT_COLLECTION.with(|collection| build_paragraph(collection, runs, style))
         } else {
             let collection = build_font_collection(&self.fonts);
-            build_paragraph(&collection, text, style)
+            build_paragraph(&collection, runs, style)
         }
     }
 }
 
 impl TextMeasurer for SkiaTextMeasurer {
-    fn measure(&self, text: &str, style: &StyleSpec, max_width: Option<f32>) -> TextMetrics {
+    fn measure_runs(
+        &self,
+        runs: &[TextRun],
+        style: &StyleSpec,
+        max_width: Option<f32>,
+    ) -> TextMetrics {
         let width_constraint = max_width.unwrap_or(100_000.0).max(1.0);
-        let mut paragraph = self.build_paragraph(text, style);
+        let mut paragraph = self.build_paragraph(runs, style);
         paragraph.layout(width_constraint);
         TextMetrics {
             width: paragraph.longest_line(),
@@ -93,15 +117,13 @@ impl TextMeasurer for SkiaTextMeasurer {
     }
 }
 
-pub fn build_paragraph(collection: &FontCollection, text: &str, style: &StyleSpec) -> Paragraph {
-    let mut text_style = TextStyle::default();
-    text_style.set_color(to_skia_color(style.color));
-    text_style.set_font_size(style.font.size as f32);
-    text_style.set_font_families(&[style.font.family.as_str()]);
-    text_style.set_font_style(font_style(style.font.weight));
-
+pub fn build_paragraph(
+    collection: &FontCollection,
+    runs: &[TextRun],
+    style: &StyleSpec,
+) -> Paragraph {
     let mut paragraph_style = ParagraphStyle::new();
-    paragraph_style.set_text_style(&text_style);
+    paragraph_style.set_text_style(&text_style(style));
     paragraph_style.set_text_align(match style.text_align {
         TextAlign::Start => SkTextAlign::Left,
         TextAlign::Center => SkTextAlign::Center,
@@ -109,10 +131,28 @@ pub fn build_paragraph(collection: &FontCollection, text: &str, style: &StyleSpe
     });
 
     let mut builder = ParagraphBuilder::new(&paragraph_style, collection.clone());
-    builder.push_style(&text_style);
-    builder.add_text(text);
-    builder.pop();
+    if runs.is_empty() {
+        builder.push_style(&text_style(style));
+        builder.pop();
+        return builder.build();
+    }
+
+    for run in runs {
+        let run_style = text_style(&run.style);
+        builder.push_style(&run_style);
+        builder.add_text(&run.text);
+        builder.pop();
+    }
     builder.build()
+}
+
+fn text_style(style: &StyleSpec) -> TextStyle {
+    let mut text_style = TextStyle::default();
+    text_style.set_color(to_skia_color(style.color));
+    text_style.set_font_size(style.font.size as f32);
+    text_style.set_font_families(&[style.font.family.as_str()]);
+    text_style.set_font_style(font_style(style.font.weight));
+    text_style
 }
 
 fn font_style(weight: u16) -> FontStyle {

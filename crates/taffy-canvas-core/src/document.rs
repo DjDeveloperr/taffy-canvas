@@ -79,6 +79,12 @@ impl Default for FontStyleSpec {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct TextRun {
+    pub text: String,
+    pub style: StyleSpec,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct StyleSpec {
     pub width: Option<f32>,
     pub height: Option<f32>,
@@ -149,10 +155,10 @@ impl Default for StyleSpec {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NodeKind {
     View,
-    Text { value: String },
+    Text { value: String, runs: Vec<TextRun> },
     Image { src: String },
 }
 
@@ -183,7 +189,7 @@ pub struct LayoutBox {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LayoutNodeKind {
     View,
-    Text { value: String },
+    Text { value: String, runs: Vec<TextRun> },
     Image { src: String },
 }
 

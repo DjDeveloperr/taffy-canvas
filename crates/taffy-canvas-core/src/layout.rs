@@ -83,12 +83,13 @@ fn measure_node(
     };
 
     match &context.kind {
-        NodeKind::Text { value } => {
+        NodeKind::Text { runs, .. } => {
             let max_width = known_dimensions
                 .width
                 .or_else(|| definite_space(available_space.width))
                 .or(context.style.width);
-            let TextMetrics { width, height } = measurer.measure(value, &context.style, max_width);
+            let TextMetrics { width, height } =
+                measurer.measure_runs(runs, &context.style, max_width);
             Size { width, height }
         }
         NodeKind::Image { .. } => Size {
@@ -134,8 +135,9 @@ fn collect_layout(
 
     let kind = match &node.kind {
         NodeKind::View => LayoutNodeKind::View,
-        NodeKind::Text { value } => LayoutNodeKind::Text {
+        NodeKind::Text { value, runs } => LayoutNodeKind::Text {
             value: value.clone(),
+            runs: runs.clone(),
         },
         NodeKind::Image { src } => LayoutNodeKind::Image { src: src.clone() },
     };

@@ -7,7 +7,7 @@ use quick_xml::{
 
 use crate::{
     Result,
-    document::{Document, Node, NodeKind},
+    document::{Document, Node, NodeKind, StyleSpec, TextRun},
     error::TaffyCanvasError,
     style::style_from_attrs,
 };
@@ -23,8 +23,14 @@ pub struct Template {
 struct TemplateNode {
     tag: TemplateTag,
     attrs: BTreeMap<String, CompiledString>,
-    text: Option<CompiledString>,
     children: Vec<TemplateNode>,
+    inline: Vec<TemplateInline>,
+}
+
+#[derive(Clone, Debug)]
+enum TemplateInline {
+    Text(CompiledString),
+    Span(TemplateNode),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +38,7 @@ enum TemplateTag {
     View,
     Text,
     Image,
+    Span,
 }
 
 #[derive(Clone, Debug)]
@@ -59,13 +66,7 @@ impl Template {
                 Ok(Event::Start(start)) => stack.push(parse_node_start(&start)?),
                 Ok(Event::Empty(start)) => {
                     let node = parse_node_start(&start)?;
-                    if let Some(parent) = stack.last_mut() {
-                        parent.children.push(node);
-                    } else if root.is_none() {
-                        root = Some(node);
-                    } else {
-                        return Err(TaffyCanvasError::Xml("multiple root nodes".to_string()));
-                    }
+                    attach_node(&mut stack, &mut root, node)?;
                 }
                 Ok(Event::Text(text)) => {
                     if let Some(node) = stack.last_mut() {
@@ -73,9 +74,7 @@ impl Template {
                             .decode()
                             .map_err(|error| TaffyCanvasError::Xml(error.to_string()))?
                             .into_owned();
-                        if !decoded.trim().is_empty() {
-                            node.text = Some(CompiledString::compile(&decoded));
-                        }
+                        push_inline_text(node, &decoded);
                     }
                 }
                 Ok(Event::CData(text)) => {
@@ -84,22 +83,14 @@ impl Template {
                             .decode()
                             .map_err(|error| TaffyCanvasError::Xml(error.to_string()))?
                             .into_owned();
-                        if !decoded.trim().is_empty() {
-                            node.text = Some(CompiledString::compile(&decoded));
-                        }
+                        push_inline_text(node, &decoded);
                     }
                 }
                 Ok(Event::End(_)) => {
                     let node = stack.pop().ok_or_else(|| {
                         TaffyCanvasError::Xml("unexpected closing tag".to_string())
                     })?;
-                    if let Some(parent) = stack.last_mut() {
-                        parent.children.push(node);
-                    } else if root.is_none() {
-                        root = Some(node);
-                    } else {
-                        return Err(TaffyCanvasError::Xml("multiple root nodes".to_string()));
-                    }
+                    attach_node(&mut stack, &mut root, node)?;
                 }
                 Ok(Event::Eof) => break,
                 Ok(Event::Decl(_))
@@ -163,25 +154,45 @@ impl TemplateNode {
         let (style, metadata) = style_from_attrs(&evaluated_attrs)?;
         let id = evaluated_attrs.get("id").cloned();
 
-        let children = self
-            .children
-            .iter()
-            .map(|child| child.instantiate(params))
-            .collect::<Result<Vec<_>>>()?;
-
         let kind = match self.tag {
-            TemplateTag::View => NodeKind::View,
+            TemplateTag::View => {
+                if !self.inline.is_empty() {
+                    return Err(TaffyCanvasError::InvalidNode {
+                        node: "view".to_string(),
+                        message: "view nodes cannot contain inline text".to_string(),
+                    });
+                }
+                NodeKind::View
+            }
             TemplateTag::Text => {
-                let value = if let Some(value) = evaluated_attrs.get("value") {
-                    value.clone()
-                } else if let Some(text) = &self.text {
-                    text.render(params)?
+                if evaluated_attrs.contains_key("value") && !self.inline.is_empty() {
+                    return Err(TaffyCanvasError::InvalidAttribute {
+                        attribute: "value".to_string(),
+                        message: "text nodes cannot mix value with inline content".to_string(),
+                    });
+                }
+
+                let (value, runs) = if let Some(value) = evaluated_attrs.get("value") {
+                    (
+                        value.clone(),
+                        vec![TextRun {
+                            text: value.clone(),
+                            style: style.clone(),
+                        }],
+                    )
                 } else {
-                    String::new()
+                    flatten_inline_runs(&self.inline, params, &style)?
                 };
-                NodeKind::Text { value }
+
+                NodeKind::Text { value, runs }
             }
             TemplateTag::Image => {
+                if !self.children.is_empty() || !self.inline.is_empty() {
+                    return Err(TaffyCanvasError::InvalidNode {
+                        node: "image".to_string(),
+                        message: "image nodes cannot contain children".to_string(),
+                    });
+                }
                 let src = evaluated_attrs.get("src").cloned().ok_or_else(|| {
                     TaffyCanvasError::InvalidAttribute {
                         attribute: "src".to_string(),
@@ -190,7 +201,19 @@ impl TemplateNode {
                 })?;
                 NodeKind::Image { src }
             }
+            TemplateTag::Span => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: "span".to_string(),
+                    message: "span nodes are only valid inside text".to_string(),
+                });
+            }
         };
+
+        let children = self
+            .children
+            .iter()
+            .map(|child| child.instantiate(params))
+            .collect::<Result<Vec<_>>>()?;
 
         Ok(Node {
             id,
@@ -211,12 +234,7 @@ impl CompiledString {
         while cursor < bytes.len() {
             if cursor + 1 < bytes.len() && bytes[cursor] == b'{' && bytes[cursor + 1] == b'{' {
                 if let Some(end_offset) = value[cursor + 2..].find("}}") {
-                    if end_offset > 0 && cursor > 0 {
-                        let literal = &value[..cursor];
-                        if !literal.is_empty() {
-                            parts.push(TemplatePart::Literal(literal.to_string()));
-                        }
-                    } else if cursor > 0 {
+                    if cursor > 0 {
                         let literal = &value[..cursor];
                         if !literal.is_empty() {
                             parts.push(TemplatePart::Literal(literal.to_string()));
@@ -263,15 +281,157 @@ impl CompiledString {
     }
 }
 
+fn flatten_inline_runs(
+    inline: &[TemplateInline],
+    params: &TemplateParams,
+    base_style: &StyleSpec,
+) -> Result<(String, Vec<TextRun>)> {
+    let mut value = String::new();
+    let mut runs = Vec::new();
+
+    for item in inline {
+        match item {
+            TemplateInline::Text(text) => {
+                let rendered = text.render(params)?;
+                if !rendered.is_empty() {
+                    value.push_str(&rendered);
+                    runs.push(TextRun {
+                        text: rendered,
+                        style: base_style.clone(),
+                    });
+                }
+            }
+            TemplateInline::Span(span) => {
+                let (span_value, span_runs) = span.instantiate_span(params, base_style)?;
+                value.push_str(&span_value);
+                runs.extend(span_runs);
+            }
+        }
+    }
+
+    Ok((value, runs))
+}
+
+impl TemplateNode {
+    fn instantiate_span(
+        &self,
+        params: &TemplateParams,
+        inherited_style: &StyleSpec,
+    ) -> Result<(String, Vec<TextRun>)> {
+        if self.tag != TemplateTag::Span {
+            return Err(TaffyCanvasError::InvalidNode {
+                node: "span".to_string(),
+                message: "only span nodes can be instantiated inline".to_string(),
+            });
+        }
+
+        if !self.children.is_empty() {
+            return Err(TaffyCanvasError::InvalidNode {
+                node: "span".to_string(),
+                message: "span nodes cannot contain block children".to_string(),
+            });
+        }
+
+        let evaluated_attrs = self
+            .attrs
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), value.render(params)?)))
+            .collect::<Result<BTreeMap<_, _>>>()?;
+
+        if evaluated_attrs.contains_key("value") && !self.inline.is_empty() {
+            return Err(TaffyCanvasError::InvalidAttribute {
+                attribute: "value".to_string(),
+                message: "span nodes cannot mix value with inline content".to_string(),
+            });
+        }
+
+        let (parsed_style, _) = style_from_attrs(&evaluated_attrs)?;
+        let merged_style = merge_inline_style(inherited_style, &parsed_style, &evaluated_attrs);
+
+        if let Some(value) = evaluated_attrs.get("value") {
+            return Ok((
+                value.clone(),
+                vec![TextRun {
+                    text: value.clone(),
+                    style: merged_style,
+                }],
+            ));
+        }
+
+        flatten_inline_runs(&self.inline, params, &merged_style)
+    }
+}
+
+fn merge_inline_style(
+    inherited: &StyleSpec,
+    parsed: &StyleSpec,
+    attrs: &BTreeMap<String, String>,
+) -> StyleSpec {
+    let mut merged = inherited.clone();
+    if attrs.contains_key("color") {
+        merged.color = parsed.color;
+    }
+    if attrs.contains_key("font-size") {
+        merged.font.size = parsed.font.size;
+    }
+    if attrs.contains_key("font-family") {
+        merged.font.family = parsed.font.family.clone();
+    }
+    if attrs.contains_key("font-weight") {
+        merged.font.weight = parsed.font.weight;
+    }
+    merged
+}
+
+fn push_inline_text(node: &mut TemplateNode, decoded: &str) {
+    match node.tag {
+        TemplateTag::Text | TemplateTag::Span => {
+            if !decoded.trim().is_empty() {
+                node.inline
+                    .push(TemplateInline::Text(CompiledString::compile(decoded)));
+            }
+        }
+        TemplateTag::View | TemplateTag::Image => {}
+    }
+}
+
+fn attach_node(
+    stack: &mut [TemplateNode],
+    root: &mut Option<TemplateNode>,
+    node: TemplateNode,
+) -> Result<()> {
+    if let Some(parent) = stack.last_mut() {
+        match (parent.tag, node.tag) {
+            (TemplateTag::Text | TemplateTag::Span, TemplateTag::Span) => {
+                parent.inline.push(TemplateInline::Span(node));
+            }
+            (TemplateTag::Text | TemplateTag::Span, _) => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: tag_name(node.tag).to_string(),
+                    message: "only span nodes may appear inside text/span".to_string(),
+                });
+            }
+            _ => parent.children.push(node),
+        }
+    } else if root.is_none() {
+        *root = Some(node);
+    } else {
+        return Err(TaffyCanvasError::Xml("multiple root nodes".to_string()));
+    }
+
+    Ok(())
+}
+
 fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
     let tag = match start.name().as_ref() {
         b"view" => TemplateTag::View,
         b"text" => TemplateTag::Text,
         b"image" => TemplateTag::Image,
+        b"span" => TemplateTag::Span,
         other => {
             return Err(TaffyCanvasError::InvalidNode {
                 node: String::from_utf8_lossy(other).into_owned(),
-                message: "supported nodes are view, text, image".to_string(),
+                message: "supported nodes are view, text, image, span".to_string(),
             });
         }
     };
@@ -286,8 +446,8 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
     Ok(TemplateNode {
         tag,
         attrs,
-        text: None,
         children: Vec::new(),
+        inline: Vec::new(),
     })
 }
 
@@ -300,4 +460,13 @@ fn parse_attr(attr: Attribute<'_>) -> Result<(String, String)> {
         .map_err(|error| TaffyCanvasError::Xml(error.to_string()))?
         .into_owned();
     Ok((key, value))
+}
+
+fn tag_name(tag: TemplateTag) -> &'static str {
+    match tag {
+        TemplateTag::View => "view",
+        TemplateTag::Text => "text",
+        TemplateTag::Image => "image",
+        TemplateTag::Span => "span",
+    }
 }

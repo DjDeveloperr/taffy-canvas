@@ -12,7 +12,7 @@ mod text;
 pub use asset::{AssetProvider, FontAsset, MemoryAssetProvider, ResourceProvider};
 pub use document::{
     Color, Document, FontStyleSpec, ImageFit, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node,
-    NodeKind, PositionKind, RenderedDocument, StyleSpec, TextAlign,
+    NodeKind, PositionKind, RenderedDocument, StyleSpec, TextAlign, TextRun,
 };
 pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;

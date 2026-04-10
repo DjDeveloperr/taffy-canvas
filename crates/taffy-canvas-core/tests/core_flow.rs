@@ -31,8 +31,47 @@ fn template_substitutes_text_and_document_size() {
     assert_eq!(document.width, 320);
     assert_eq!(document.height, 180);
     assert!(
-        matches!(&document.root.children[0].kind, taffy_canvas_core::NodeKind::Text { value } if value == "Hello Taffy")
+        matches!(&document.root.children[0].kind, taffy_canvas_core::NodeKind::Text { value, .. } if value == "Hello Taffy")
     );
+}
+
+#[test]
+fn template_flattens_inline_spans_into_runs() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="120">
+          <text color="#ffffff">Hello <span color="#ff0000">Red</span> {{name}}</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("name".to_string(), "Canvas".to_string());
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    match &document.root.children[0].kind {
+        taffy_canvas_core::NodeKind::Text { value, runs } => {
+            assert_eq!(value, "Hello Red Canvas");
+            assert_eq!(runs.len(), 3);
+            assert_eq!(runs[0].text, "Hello ");
+            assert_eq!(runs[1].text, "Red");
+            assert_eq!(runs[2].text, " Canvas");
+            assert_eq!(runs[0].style.color, Color::WHITE);
+            assert_eq!(
+                runs[1].style.color,
+                Color {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255
+                }
+            );
+        }
+        other => panic!("expected text node, got {other:?}"),
+    }
 }
 
 #[test]
@@ -245,6 +284,26 @@ fn layout_supports_per_side_margin_attributes() {
 
     assert_eq!(laid_out.root.children[0].layout.x, 0.0);
     assert_eq!(laid_out.root.children[1].layout.x, 20.0);
+}
+
+#[test]
+fn layout_accounts_for_larger_inline_span_font_size() {
+    let template = Template::compile(
+        r##"
+        <view width="200" height="120" background="#ffffff">
+          <text font-size="12" color="#111111">small <span font-size="32">BIG</span> small</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &SkiaTextMeasurer::default()).expect("layout succeeds");
+
+    assert!(laid_out.root.children[0].layout.height > 24.0);
 }
 
 #[test]

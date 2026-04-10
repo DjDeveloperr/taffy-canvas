@@ -1,6 +1,6 @@
 use skia_safe::{
-    Color as SkColor, Data, EncodedImageFormat, Image, ImageInfo, Paint, PaintStyle, RRect, Rect,
-    SamplingOptions, surfaces,
+    AlphaType, Color as SkColor, ColorType, Data, EncodedImageFormat, Image, ImageInfo, Paint,
+    PaintStyle, RRect, Rect, SamplingOptions, surfaces,
 };
 
 use crate::{
@@ -48,7 +48,12 @@ pub fn render_document(
         .as_bytes()
         .to_vec();
 
-    let info = ImageInfo::new_n32_premul((layout.width as i32, layout.height as i32), None);
+    let info = ImageInfo::new(
+        (layout.width as i32, layout.height as i32),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
     let mut pixels_rgba = vec![0u8; layout.width as usize * layout.height as usize * 4];
     if !surface.read_pixels(&info, &mut pixels_rgba, layout.width as usize * 4, (0, 0)) {
         return Err(TaffyCanvasError::Render(
@@ -92,7 +97,7 @@ fn draw_node(
 
     match &node.kind {
         LayoutNodeKind::View => {}
-        LayoutNodeKind::Text { value } => draw_text(canvas, node, value, measurer)?,
+        LayoutNodeKind::Text { runs, .. } => draw_text(canvas, node, runs, measurer)?,
         LayoutNodeKind::Image { src } => draw_image(canvas, node, src, assets)?,
     }
 
@@ -142,10 +147,10 @@ fn draw_box(canvas: &skia_safe::Canvas, node: &LayoutNode) {
 fn draw_text(
     canvas: &skia_safe::Canvas,
     node: &LayoutNode,
-    value: &str,
+    runs: &[crate::document::TextRun],
     measurer: &SkiaTextMeasurer,
 ) -> Result<()> {
-    let mut paragraph = measurer.build_paragraph(value, &node.style);
+    let mut paragraph = measurer.build_paragraph(runs, &node.style);
     paragraph.layout(node.layout.width.max(1.0));
     paragraph.paint(canvas, (node.layout.x, node.layout.y));
     Ok(())

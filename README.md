@@ -20,6 +20,7 @@ Implemented today:
 
 - specialized XML parsing for `view`, `text`, and `image`
 - template compilation plus `{{param}}` substitution
+- inline rich text spans inside `text` via nested `<span>` nodes
 - Skia-backed text measurement used for both layout and paint
 - CPU rendering path
 - reusable renderer handles for parallel async rendering
@@ -53,7 +54,7 @@ Implemented today:
 Still not implemented:
 
 - GPU-backed rendering path
-- inline images/rich text flow
+- inline images and richer rich text flow beyond styled spans
 - broader CSS/Taffy coverage beyond the current subset
 - production asset/font loading abstractions beyond in-memory resources
 - pooled prepared-image caches and deeper render-time reuse
@@ -70,12 +71,21 @@ Three node types are supported:
 </view>
 ```
 
+Inline styled spans are also supported inside `text`:
+
+```xml
+<text color="#ffffff">
+  Hello <span color="#ff4f64" font-weight="700">world</span>
+</text>
+```
+
 Rules:
 
 - the root element must be `<view>`
 - root width and height are required
 - template params use `{{name}}`
 - `text` can use inner text or a `value` attribute
+- `text` can contain nested `<span>` nodes for inline styling
 - `image` requires `src`
 
 ## Rust Usage
