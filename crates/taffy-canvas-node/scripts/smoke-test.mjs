@@ -22,7 +22,8 @@ const resources = binding.createResources()
 const template = binding.compileTemplate(
   '<view width="8" height="8" background="#102030"><text color="#ffffff">Hi</text></view>'
 )
-const compiledPng = binding.renderWithRendererAndResourcesSync(renderer, resources, template, {})
+const prepared = binding.prepareTemplateWithRenderer(renderer, resources, template)
+const compiledPng = binding.renderPreparedSync(prepared, {})
 
 assert.ok(Buffer.isBuffer(compiledPng))
 assert.ok(compiledPng.length > 0)

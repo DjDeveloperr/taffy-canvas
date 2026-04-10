@@ -14,6 +14,8 @@ pub enum TaffyCanvasError {
     MissingTemplateParam(String),
     #[error("asset `{0}` not found")]
     MissingAsset(String),
+    #[error("io error: {0}")]
+    Io(String),
     #[error("render error: {0}")]
     Render(String),
     #[error("layout error: {0}")]

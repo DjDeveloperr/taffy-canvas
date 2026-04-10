@@ -16,6 +16,16 @@ pub struct Renderer {
     inner: Arc<RendererInner>,
 }
 
+#[derive(Clone)]
+pub struct PreparedTemplate<R>
+where
+    R: ResourceProvider + Clone,
+{
+    renderer: Renderer,
+    template: Arc<Template>,
+    resources: R,
+}
+
 struct RendererInner {
     pool: rayon::ThreadPool,
 }
@@ -43,6 +53,39 @@ impl Renderer {
             let measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
             render_document(&document, &measurer, assets, options)
         })
+    }
+
+    pub fn prepare<R>(&self, template: Template, resources: R) -> PreparedTemplate<R>
+    where
+        R: ResourceProvider + Clone,
+    {
+        PreparedTemplate {
+            renderer: self.clone(),
+            template: Arc::new(template),
+            resources,
+        }
+    }
+}
+
+impl<R> PreparedTemplate<R>
+where
+    R: ResourceProvider + Clone,
+{
+    pub fn render(&self, params: &TemplateParams, options: RenderOptions) -> Result<RenderOutput> {
+        self.renderer
+            .render(self.template.as_ref(), params, &self.resources, options)
+    }
+
+    pub fn renderer(&self) -> &Renderer {
+        &self.renderer
+    }
+
+    pub fn template(&self) -> &Template {
+        self.template.as_ref()
+    }
+
+    pub fn resources(&self) -> &R {
+        &self.resources
     }
 }
 

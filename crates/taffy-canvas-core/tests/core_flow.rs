@@ -1,10 +1,16 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::PathBuf,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    Color, FixedTextMeasurer, FontAsset, LayoutNodeKind, MemoryAssetProvider, RenderOptions,
-    Renderer, SkiaTextMeasurer, StyleSpec, Template, TemplateParams, TextMeasurer, layout_document,
-    render_template,
+    Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, LayoutNodeKind,
+    MemoryAssetProvider, RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec,
+    Template, TemplateParams, TextMeasurer, layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -522,6 +528,30 @@ fn renderer_reuses_template_for_parallel_renders() {
 }
 
 #[test]
+fn prepared_template_reuses_bound_resources_and_renderer() {
+    let renderer = Renderer::new(2).expect("renderer");
+    let template = Template::compile(
+        r##"
+        <view width="32" height="16" background="#102030">
+          <text color="#ffffff">Hello {{name}}</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+    let prepared = renderer.prepare(template, empty_assets());
+
+    let mut params = TemplateParams::new();
+    params.insert("name".to_string(), "Canvas".to_string());
+    let output = prepared
+        .render(&params, RenderOptions::default())
+        .expect("render succeeds");
+
+    assert_eq!(output.width, 32);
+    assert_eq!(output.height, 16);
+    assert!(!output.png_bytes.is_empty());
+}
+
+#[test]
 fn skia_text_measurement_wraps_under_width_constraints() {
     let text = "A deliberately long line of text that should wrap across multiple lines.";
     let measurer = SkiaTextMeasurer::default();
@@ -633,6 +663,72 @@ fn registered_font_alias_matches_direct_system_font_metrics() {
     assert!((aliased.height - direct.height).abs() < 0.5);
 }
 
+#[test]
+fn filesystem_resource_provider_loads_assets_and_reuses_decoded_images() {
+    let dir = temp_test_dir("filesystem-assets");
+    fs::write(dir.join("swatch.png"), sample_image_png()).expect("write asset");
+
+    let assets = FileSystemResourceProvider::new(&dir);
+    let bytes = taffy_canvas_core::AssetProvider::load(&assets, "swatch.png").expect("load bytes");
+    assert!(!bytes.is_empty());
+
+    let first = taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch.png")
+        .expect("first decoded image");
+    let second = taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch.png")
+        .expect("second decoded image");
+
+    assert_eq!(assets.decoded_image_count(), 1);
+    assert_eq!(first.unique_id(), second.unique_id());
+
+    fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn filesystem_resource_provider_registers_font_paths() {
+    let typeface = FontMgr::new()
+        .legacy_make_typeface(Some("monospace"), FontStyle::default())
+        .or_else(|| FontMgr::new().legacy_make_typeface(Some("serif"), FontStyle::default()))
+        .expect("system font available");
+    let family_name = typeface.family_name();
+    let (bytes, _) = typeface.to_font_data().expect("font bytes");
+
+    let dir = temp_test_dir("filesystem-fonts");
+    let font_path = dir.join("display.ttf");
+    fs::write(&font_path, bytes).expect("write font");
+
+    let mut provider = FileSystemResourceProvider::new(&dir);
+    provider
+        .register_font_path("DisplayAlias", &font_path)
+        .expect("register font path");
+
+    let style = StyleSpec {
+        font: taffy_canvas_core::FontStyleSpec {
+            family: "DisplayAlias".to_string(),
+            ..StyleSpec::default().font
+        },
+        ..StyleSpec::default()
+    };
+    let direct_style = StyleSpec {
+        font: taffy_canvas_core::FontStyleSpec {
+            family: family_name,
+            ..style.font.clone()
+        },
+        ..style.clone()
+    };
+
+    let direct = SkiaTextMeasurer::default().measure("Canvas", &direct_style, Some(1000.0));
+    let aliased = SkiaTextMeasurer::with_fonts(provider.fonts().to_vec()).measure(
+        "Canvas",
+        &style,
+        Some(1000.0),
+    );
+
+    assert!((aliased.width - direct.width).abs() < 0.5);
+    assert!((aliased.height - direct.height).abs() < 0.5);
+
+    fs::remove_dir_all(&dir).expect("cleanup");
+}
+
 fn pixel(bytes: &[u8], width: usize, x: usize, y: usize) -> Color {
     let index = (y * width + x) * 4;
     Color {
@@ -680,4 +776,14 @@ fn sample_solid_png(width: i32, height: i32, r: u8, g: u8, b: u8) -> Vec<u8> {
         .expect("png")
         .as_bytes()
         .to_vec()
+}
+
+fn temp_test_dir(name: &str) -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("taffy-canvas-{name}-{unique}"));
+    fs::create_dir_all(&path).expect("create temp dir");
+    path
 }

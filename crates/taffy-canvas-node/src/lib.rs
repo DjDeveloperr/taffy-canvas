@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{fs, sync::OnceLock};
 
 use napi::{
     Error, Result, Status,
@@ -9,6 +9,13 @@ use serde_json::Value;
 use taffy_canvas_core::{MemoryAssetProvider, RenderOptions, Renderer, Template, TemplateParams};
 
 static DEFAULT_RENDERER: OnceLock<Renderer> = OnceLock::new();
+
+#[derive(Clone)]
+pub struct PreparedTemplateHandle {
+    renderer: Renderer,
+    resources: MemoryAssetProvider,
+    template: Template,
+}
 
 #[napi]
 pub fn version() -> String {
@@ -46,9 +53,56 @@ pub fn add_resource_font(
 }
 
 #[napi]
+pub fn add_resource_asset_from_file(
+    resources: &mut External<MemoryAssetProvider>,
+    key: String,
+    path: String,
+) -> Result<()> {
+    let bytes = read_file_bytes(&path)?;
+    resources.insert_asset(key, bytes);
+    Ok(())
+}
+
+#[napi]
+pub fn add_resource_font_from_file(
+    resources: &mut External<MemoryAssetProvider>,
+    family: String,
+    path: String,
+) -> Result<()> {
+    let bytes = read_file_bytes(&path)?;
+    resources.register_font(family, bytes);
+    Ok(())
+}
+
+#[napi]
 pub fn compile_template(xml: String) -> Result<External<Template>> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
     Ok(External::new(template))
+}
+
+#[napi]
+pub fn prepare_template(
+    resources: &External<MemoryAssetProvider>,
+    template: &External<Template>,
+) -> External<PreparedTemplateHandle> {
+    External::new(PreparedTemplateHandle {
+        renderer: default_renderer().clone(),
+        resources: resources.as_ref().clone(),
+        template: template.as_ref().clone(),
+    })
+}
+
+#[napi]
+pub fn prepare_template_with_renderer(
+    renderer: &External<Renderer>,
+    resources: &External<MemoryAssetProvider>,
+    template: &External<Template>,
+) -> External<PreparedTemplateHandle> {
+    External::new(PreparedTemplateHandle {
+        renderer: renderer.as_ref().clone(),
+        resources: resources.as_ref().clone(),
+        template: template.as_ref().clone(),
+    })
 }
 
 #[napi]
@@ -231,6 +285,42 @@ pub async fn render_with_renderer_and_resources(
     Ok(Buffer::from(bytes))
 }
 
+#[napi]
+pub fn render_prepared_sync(
+    prepared: &External<PreparedTemplateHandle>,
+    params: Option<Value>,
+) -> Result<Buffer> {
+    render_with_template(
+        &prepared.renderer,
+        &prepared.template,
+        normalize_params(params)?,
+        &prepared.resources,
+    )
+    .map(Buffer::from)
+}
+
+#[napi]
+pub async fn render_prepared(
+    prepared: &External<PreparedTemplateHandle>,
+    params: Option<Value>,
+) -> Result<Buffer> {
+    let prepared = prepared.as_ref().clone();
+    let params = normalize_params(params)?;
+
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        render_with_template(
+            &prepared.renderer,
+            &prepared.template,
+            params,
+            &prepared.resources,
+        )
+    })
+    .await
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
+
+    Ok(Buffer::from(bytes))
+}
+
 fn render_with_template(
     renderer: &Renderer,
     template: &Template,
@@ -277,6 +367,15 @@ fn normalize_params(input: Option<Value>) -> Result<TemplateParams> {
 
 fn to_napi_error(error: impl std::fmt::Display) -> Error {
     Error::new(Status::GenericFailure, error.to_string())
+}
+
+fn read_file_bytes(path: &str) -> Result<Vec<u8>> {
+    fs::read(path).map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("failed to read `{path}`: {error}"),
+        )
+    })
 }
 
 fn default_renderer() -> &'static Renderer {
