@@ -1,9 +1,6 @@
 use skia_safe::{
-    Color as SkColor, Data, EncodedImageFormat, FontMgr, Image, ImageInfo, Paint, PaintStyle,
-    RRect, Rect, SamplingOptions, surfaces,
-    textlayout::{
-        FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign as SkTextAlign, TextStyle,
-    },
+    Color as SkColor, Data, EncodedImageFormat, Image, ImageInfo, Paint, PaintStyle, RRect, Rect,
+    SamplingOptions, surfaces,
 };
 
 use crate::{
@@ -13,7 +10,7 @@ use crate::{
     error::TaffyCanvasError,
     layout::layout_document,
     template::{Template, TemplateParams},
-    text::{FixedTextMeasurer, TextMeasurer},
+    text::SkiaTextMeasurer,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -32,7 +29,7 @@ pub struct RenderOutput {
 
 pub fn render_document(
     document: &crate::document::Document,
-    measurer: &dyn TextMeasurer,
+    measurer: &SkiaTextMeasurer,
     assets: &dyn AssetProvider,
     _options: RenderOptions,
 ) -> Result<RenderOutput> {
@@ -42,11 +39,11 @@ pub fn render_document(
     let canvas = surface.canvas();
     canvas.clear(SkColor::TRANSPARENT);
 
-    draw_node(canvas, &layout.root, assets)?;
+    draw_node(canvas, &layout.root, measurer, assets)?;
 
     let image = surface.image_snapshot();
     let png_bytes = image
-        .encode_to_data(EncodedImageFormat::PNG)
+        .encode(None, EncodedImageFormat::PNG, None)
         .ok_or_else(|| TaffyCanvasError::Render("failed to encode png".to_string()))?
         .as_bytes()
         .to_vec();
@@ -75,25 +72,26 @@ pub fn render_template(
     options: RenderOptions,
 ) -> Result<RenderOutput> {
     let document = template.instantiate(params)?;
-    let measurer = FixedTextMeasurer::default();
+    let measurer = SkiaTextMeasurer::default();
     render_document(&document, &measurer, assets, options)
 }
 
 fn draw_node(
     canvas: &skia_safe::Canvas,
     node: &LayoutNode,
+    measurer: &SkiaTextMeasurer,
     assets: &dyn AssetProvider,
 ) -> Result<()> {
     draw_box(canvas, node);
 
     match &node.kind {
         LayoutNodeKind::View => {}
-        LayoutNodeKind::Text { value } => draw_text(canvas, node, value)?,
+        LayoutNodeKind::Text { value } => draw_text(canvas, node, value, measurer)?,
         LayoutNodeKind::Image { src } => draw_image(canvas, node, src, assets)?,
     }
 
     for child in &node.children {
-        draw_node(canvas, child, assets)?;
+        draw_node(canvas, child, measurer, assets)?;
     }
     Ok(())
 }
@@ -131,28 +129,13 @@ fn draw_box(canvas: &skia_safe::Canvas, node: &LayoutNode) {
     }
 }
 
-fn draw_text(canvas: &skia_safe::Canvas, node: &LayoutNode, value: &str) -> Result<()> {
-    let mut collection = FontCollection::new();
-    collection.set_default_font_manager(FontMgr::default(), None::<&str>);
-
-    let mut text_style = TextStyle::default();
-    text_style.set_color(to_skia_color(node.style.color));
-    text_style.set_font_size(node.style.font.size as f32);
-    text_style.set_font_families(&[node.style.font.family.as_str()]);
-
-    let mut paragraph_style = ParagraphStyle::new();
-    paragraph_style.set_text_style(&text_style);
-    paragraph_style.set_text_align(match node.style.text_align {
-        crate::document::TextAlign::Start => SkTextAlign::Left,
-        crate::document::TextAlign::Center => SkTextAlign::Center,
-        crate::document::TextAlign::End => SkTextAlign::Right,
-    });
-
-    let mut builder = ParagraphBuilder::new(&paragraph_style, collection);
-    builder.push_style(&text_style);
-    builder.add_text(value);
-    builder.pop();
-    let mut paragraph = builder.build();
+fn draw_text(
+    canvas: &skia_safe::Canvas,
+    node: &LayoutNode,
+    value: &str,
+    measurer: &SkiaTextMeasurer,
+) -> Result<()> {
+    let mut paragraph = measurer.build_paragraph(value, &node.style);
     paragraph.layout(node.layout.width.max(1.0));
     paragraph.paint(canvas, (node.layout.x, node.layout.y));
     Ok(())

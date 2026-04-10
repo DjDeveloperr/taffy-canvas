@@ -13,10 +13,9 @@ use crate::{
         RenderedDocument, StyleSpec,
     },
     error::TaffyCanvasError,
+    text::TextMeasurer,
     text::TextMetrics,
 };
-
-pub use crate::text::{FixedTextMeasurer, TextMeasurer};
 
 #[derive(Clone, Debug)]
 struct LayoutContext {

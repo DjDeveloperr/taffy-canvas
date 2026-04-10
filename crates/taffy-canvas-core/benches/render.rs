@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use taffy_canvas_core::{MemoryAssetProvider, RenderOptions, Template, TemplateParams};
+use taffy_canvas_core::{MemoryAssetProvider, RenderOptions, Renderer, Template, TemplateParams};
 
 fn bench_render(c: &mut Criterion) {
     let xml = r##"
@@ -14,6 +14,7 @@ fn bench_render(c: &mut Criterion) {
     let mut params = TemplateParams::new();
     params.insert("name".to_string(), "Canvas".to_string());
     let assets = MemoryAssetProvider::new(BTreeMap::new());
+    let renderer = Renderer::new(4).expect("renderer");
 
     c.bench_function("template_compile", |b| {
         b.iter(|| {
@@ -23,12 +24,7 @@ fn bench_render(c: &mut Criterion) {
 
     c.bench_function("prepared_render", |b| {
         b.iter(|| {
-            let _ = taffy_canvas_core::render_template(
-                &template,
-                &params,
-                &assets,
-                RenderOptions::default(),
-            );
+            let _ = renderer.render(&template, &params, &assets, RenderOptions::default());
         });
     });
 }

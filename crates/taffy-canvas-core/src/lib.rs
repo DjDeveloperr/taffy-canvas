@@ -15,9 +15,9 @@ pub use document::{
     NodeKind, PositionKind, RenderedDocument, StyleSpec, TextAlign,
 };
 pub use error::{Result, TaffyCanvasError};
-pub use layout::{FixedTextMeasurer, layout_document};
+pub use layout::layout_document;
 pub use parser::parse_template;
-pub use pool::RendererPool;
+pub use pool::Renderer;
 pub use render::{RenderOptions, RenderOutput, render_document, render_template};
 pub use template::{Template, TemplateParams};
-pub use text::TextMeasurer;
+pub use text::{FixedTextMeasurer, SkiaTextMeasurer, TextMeasurer};

@@ -1,8 +1,10 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use skia_safe::{Color as SkColor, EncodedImageFormat, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    Color, FixedTextMeasurer, LayoutNodeKind, MemoryAssetProvider, RenderOptions, RendererPool,
-    Template, TemplateParams, layout_document, render_template,
+    Color, FixedTextMeasurer, LayoutNodeKind, MemoryAssetProvider, RenderOptions, Renderer,
+    SkiaTextMeasurer, StyleSpec, Template, TemplateParams, TextMeasurer, layout_document,
+    render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -98,40 +100,109 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
 }
 
 #[test]
-fn renderer_pool_renders_multiple_param_sets() {
+fn renderer_reuses_template_for_parallel_renders() {
+    let template = Arc::new(
+        Template::compile(
+            r##"
+            <view width="128" height="48" background="#0b0f19">
+              <text color="#ffffff">Hello {{name}}</text>
+            </view>
+            "##,
+        )
+        .expect("template compiles"),
+    );
+    let renderer = Renderer::new(2).expect("renderer");
+    let assets = Arc::new(empty_assets());
+
+    let outputs = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for name in ["One", "Two", "Three", "Four"] {
+            let renderer = renderer.clone();
+            let template = Arc::clone(&template);
+            let assets = Arc::clone(&assets);
+            handles.push(scope.spawn(move || {
+                let mut params = TemplateParams::new();
+                params.insert("name".to_string(), name.to_string());
+                renderer.render(
+                    &template,
+                    &params,
+                    assets.as_ref(),
+                    RenderOptions::default(),
+                )
+            }));
+        }
+
+        handles
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .expect("thread joins")
+                    .expect("render succeeds")
+            })
+            .collect::<Vec<_>>()
+    });
+
+    assert_eq!(outputs.len(), 4);
+    assert!(outputs.iter().all(|output| !output.png_bytes.is_empty()));
+    assert!(outputs.iter().all(|output| matches!(
+        output.layout.root.children[0].kind,
+        LayoutNodeKind::Text { .. }
+    )));
+}
+
+#[test]
+fn skia_text_measurement_wraps_under_width_constraints() {
+    let text = "A deliberately long line of text that should wrap across multiple lines.";
+    let measurer = SkiaTextMeasurer::default();
+    let style = StyleSpec::default();
+    let wide = measurer.measure(text, &style, Some(220.0));
+    let narrow = measurer.measure(text, &style, Some(90.0));
+
+    assert!(narrow.height > wide.height);
+    assert!(narrow.width <= wide.width);
+    assert!(narrow.height > 20.0);
+}
+
+#[test]
+fn render_outputs_expected_pixels_for_image_assets() {
     let template = Template::compile(
         r##"
-        <view width="128" height="48" background="#0b0f19">
-          <text color="#ffffff">Hello {{name}}</text>
+        <view width="2" height="1">
+          <image src="swatch" width="2" height="1" fit="fill" />
         </view>
         "##,
     )
     .expect("template compiles");
 
-    let mut first = TemplateParams::new();
-    first.insert("name".to_string(), "One".to_string());
-    let mut second = TemplateParams::new();
-    second.insert("name".to_string(), "Two".to_string());
+    let mut assets = BTreeMap::new();
+    assets.insert("swatch".to_string(), sample_image_png());
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &MemoryAssetProvider::new(assets),
+        RenderOptions::default(),
+    )
+    .expect("render succeeds");
 
-    let pool = RendererPool::new(2).expect("pool");
-    let outputs = pool
-        .render_many(
-            &template,
-            vec![first, second],
-            Arc::new(empty_assets()),
-            RenderOptions::default(),
-        )
-        .expect("pool render");
-
-    assert_eq!(outputs.len(), 2);
-    assert!(matches!(
-        outputs[0].layout.root.children[0].kind,
-        LayoutNodeKind::Text { .. }
-    ));
-    assert!(matches!(
-        outputs[1].layout.root.children[0].kind,
-        LayoutNodeKind::Text { .. }
-    ));
+    assert_eq!(
+        pixel(&output.pixels_rgba, 2, 0, 0),
+        Color {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 2, 1, 0),
+        Color {
+            r: 0,
+            g: 0,
+            b: 255,
+            a: 255
+        }
+    );
 }
 
 fn pixel(bytes: &[u8], width: usize, x: usize, y: usize) -> Color {
@@ -142,4 +213,23 @@ fn pixel(bytes: &[u8], width: usize, x: usize, y: usize) -> Color {
         b: bytes[index + 2],
         a: bytes[index + 3],
     }
+}
+
+fn sample_image_png() -> Vec<u8> {
+    let mut surface = surfaces::raster_n32_premul((2, 1)).expect("surface");
+    let canvas = surface.canvas();
+    canvas.clear(SkColor::TRANSPARENT);
+
+    let mut paint = Paint::default();
+    paint.set_color(SkColor::from_rgb(255, 0, 0));
+    canvas.draw_rect(Rect::from_xywh(0.0, 0.0, 1.0, 1.0), &paint);
+    paint.set_color(SkColor::from_rgb(0, 0, 255));
+    canvas.draw_rect(Rect::from_xywh(1.0, 0.0, 1.0, 1.0), &paint);
+
+    surface
+        .image_snapshot()
+        .encode(None, EncodedImageFormat::PNG, None)
+        .expect("png")
+        .as_bytes()
+        .to_vec()
 }

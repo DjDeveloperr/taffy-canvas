@@ -1,40 +1,59 @@
 use std::sync::Arc;
 
-use rayon::{ThreadPool, ThreadPoolBuilder, prelude::*};
+use rayon::ThreadPoolBuilder;
 
 use crate::{
-    Template, TemplateParams,
+    Result,
     asset::AssetProvider,
-    render::{RenderOptions, RenderOutput, render_template},
+    error::TaffyCanvasError,
+    render::{RenderOptions, RenderOutput, render_document},
+    template::{Template, TemplateParams},
+    text::SkiaTextMeasurer,
 };
 
 #[derive(Clone)]
-pub struct RendererPool {
-    pool: Arc<ThreadPool>,
+pub struct Renderer {
+    inner: Arc<RendererInner>,
 }
 
-impl RendererPool {
-    pub fn new(threads: usize) -> crate::Result<Self> {
+struct RendererInner {
+    pool: rayon::ThreadPool,
+    measurer: SkiaTextMeasurer,
+}
+
+impl Renderer {
+    pub fn new(threads: usize) -> Result<Self> {
         let pool = ThreadPoolBuilder::new()
             .num_threads(threads.max(1))
             .build()
-            .map_err(|error| crate::TaffyCanvasError::Render(error.to_string()))?;
+            .map_err(|error| TaffyCanvasError::Render(error.to_string()))?;
         Ok(Self {
-            pool: Arc::new(pool),
+            inner: Arc::new(RendererInner {
+                pool,
+                measurer: SkiaTextMeasurer::default(),
+            }),
         })
     }
 
-    pub fn render_many(
+    pub fn render(
         &self,
         template: &Template,
-        jobs: Vec<TemplateParams>,
-        assets: Arc<dyn AssetProvider>,
+        params: &TemplateParams,
+        assets: &dyn AssetProvider,
         options: RenderOptions,
-    ) -> crate::Result<Vec<RenderOutput>> {
-        self.pool.install(|| {
-            jobs.into_par_iter()
-                .map(|params| render_template(template, &params, assets.as_ref(), options))
-                .collect()
+    ) -> Result<RenderOutput> {
+        self.inner.pool.install(|| {
+            let document = template.instantiate(params)?;
+            render_document(&document, &self.inner.measurer, assets, options)
         })
+    }
+}
+
+impl Default for Renderer {
+    fn default() -> Self {
+        let threads = std::thread::available_parallelism()
+            .map(|parallelism| parallelism.get())
+            .unwrap_or(1);
+        Self::new(threads).expect("renderer")
     }
 }
