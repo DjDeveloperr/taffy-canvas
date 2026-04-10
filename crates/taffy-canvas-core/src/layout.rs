@@ -10,8 +10,8 @@ use taffy::{
 use crate::{
     Result,
     document::{
-        DisplayKind, Document, Insets, LayoutBox, LayoutNode, LayoutNodeKind, Node, NodeKind,
-        PositionKind, RenderedDocument, StyleSpec,
+        DisplayKind, Document, Insets, LayoutBox, LayoutNode, LayoutNodeKind, LengthAutoValue,
+        LengthValue, Node, NodeKind, PositionKind, RenderedDocument, StyleSpec,
     },
     error::TaffyCanvasError,
     text::TextMeasurer,
@@ -88,7 +88,7 @@ fn measure_node(
             let max_width = known_dimensions
                 .width
                 .or_else(|| definite_space(available_space.width))
-                .or(context.style.width);
+                .or_else(|| definite_length(context.style.width));
             let TextMetrics { width, height } =
                 measurer.measure_runs(runs, &context.style, max_width);
             Size { width, height }
@@ -96,11 +96,11 @@ fn measure_node(
         NodeKind::Image { .. } => Size {
             width: known_dimensions
                 .width
-                .or(context.style.width)
+                .or_else(|| definite_length(context.style.width))
                 .unwrap_or(0.0),
             height: known_dimensions
                 .height
-                .or(context.style.height)
+                .or_else(|| definite_length(context.style.height))
                 .unwrap_or(0.0),
         },
         NodeKind::View => Size::ZERO,
@@ -162,31 +162,31 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     output.size = Size {
         width: style
             .width
-            .map(Dimension::length)
+            .map(dimension_value)
             .unwrap_or_else(Dimension::auto),
         height: style
             .height
-            .map(Dimension::length)
+            .map(dimension_value)
             .unwrap_or_else(Dimension::auto),
     };
     output.min_size = Size {
         width: style
             .min_width
-            .map(Dimension::length)
+            .map(dimension_value)
             .unwrap_or_else(Dimension::auto),
         height: style
             .min_height
-            .map(Dimension::length)
+            .map(dimension_value)
             .unwrap_or_else(Dimension::auto),
     };
     output.max_size = Size {
         width: style
             .max_width
-            .map(Dimension::length)
+            .map(dimension_value)
             .unwrap_or_else(Dimension::auto),
         height: style
             .max_height
-            .map(Dimension::length)
+            .map(dimension_value)
             .unwrap_or_else(Dimension::auto),
     };
     output.aspect_ratio = style.aspect_ratio;
@@ -210,11 +210,11 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     };
     output.item_is_replaced = is_replaced;
 
-    let column_gap = style.column_gap.or(style.gap).unwrap_or(0.0);
-    let row_gap = style.row_gap.or(style.gap).unwrap_or(0.0);
+    let column_gap = style.column_gap.or(style.gap).unwrap_or_default();
+    let row_gap = style.row_gap.or(style.gap).unwrap_or_default();
     output.gap = Size {
-        width: LengthPercentage::length(column_gap),
-        height: LengthPercentage::length(row_gap),
+        width: length_percentage_value(column_gap),
+        height: length_percentage_value(row_gap),
     };
     if let Some(direction) = &style.flex_direction {
         output.flex_direction = match direction.as_str() {
@@ -281,28 +281,31 @@ fn to_taffy_style(style: &StyleSpec, is_replaced: bool) -> Style {
     }
     output.flex_basis = style
         .flex_basis
-        .map(Dimension::length)
+        .map(dimension_value)
         .unwrap_or_else(Dimension::auto);
     output.flex_grow = style.flex_grow;
     output.flex_shrink = style.flex_shrink;
     output
 }
 
-fn rect_length(insets: Insets) -> Rect<LengthPercentage> {
+fn rect_length<T>(insets: Insets<T>) -> Rect<LengthPercentage>
+where
+    T: Into<LengthValue> + Copy,
+{
     Rect {
-        left: LengthPercentage::length(insets.left),
-        right: LengthPercentage::length(insets.right),
-        top: LengthPercentage::length(insets.top),
-        bottom: LengthPercentage::length(insets.bottom),
+        left: length_percentage_value(insets.left.into()),
+        right: length_percentage_value(insets.right.into()),
+        top: length_percentage_value(insets.top.into()),
+        bottom: length_percentage_value(insets.bottom.into()),
     }
 }
 
-fn rect_auto(insets: Insets) -> Rect<LengthPercentageAuto> {
+fn rect_auto(insets: Insets<LengthAutoValue>) -> Rect<LengthPercentageAuto> {
     Rect {
-        left: LengthPercentageAuto::length(insets.left),
-        right: LengthPercentageAuto::length(insets.right),
-        top: LengthPercentageAuto::length(insets.top),
-        bottom: LengthPercentageAuto::length(insets.bottom),
+        left: length_percentage_auto_value(insets.left),
+        right: length_percentage_auto_value(insets.right),
+        top: length_percentage_auto_value(insets.top),
+        bottom: length_percentage_auto_value(insets.bottom),
     }
 }
 
@@ -310,5 +313,41 @@ fn definite_space(space: AvailableSpace) -> Option<f32> {
     match space {
         AvailableSpace::Definite(value) => Some(value),
         _ => None,
+    }
+}
+
+fn definite_length(length: Option<LengthValue>) -> Option<f32> {
+    length.and_then(LengthValue::points)
+}
+
+fn dimension_value(value: LengthValue) -> Dimension {
+    match value {
+        LengthValue::Points(points) => Dimension::length(points),
+        LengthValue::Percent(percent) => Dimension::percent(percent),
+    }
+}
+
+fn length_percentage_value(value: LengthValue) -> LengthPercentage {
+    match value {
+        LengthValue::Points(points) => LengthPercentage::length(points),
+        LengthValue::Percent(percent) => LengthPercentage::percent(percent),
+    }
+}
+
+fn length_percentage_auto_value(value: LengthAutoValue) -> LengthPercentageAuto {
+    match value {
+        LengthAutoValue::Length(LengthValue::Points(points)) => {
+            LengthPercentageAuto::length(points)
+        }
+        LengthAutoValue::Length(LengthValue::Percent(percent)) => {
+            LengthPercentageAuto::percent(percent)
+        }
+        LengthAutoValue::Auto => LengthPercentageAuto::auto(),
+    }
+}
+
+impl From<f32> for LengthValue {
+    fn from(value: f32) -> Self {
+        Self::Points(value)
     }
 }

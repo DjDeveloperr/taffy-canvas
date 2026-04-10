@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::{
     Result,
-    document::{DisplayKind, FontStyleSpec, ImageFit, Insets, PositionKind, StyleSpec, TextAlign},
+    document::{
+        DisplayKind, FontStyleSpec, ImageFit, Insets, LengthAutoValue, LengthValue, PositionKind,
+        StyleSpec, TextAlign,
+    },
     error::TaffyCanvasError,
 };
 
@@ -48,12 +51,12 @@ pub fn style_from_attrs(
 
     for (key, value) in attrs {
         match key.as_str() {
-            "width" => style.width = Some(parse_number(value, key)?),
-            "height" => style.height = Some(parse_number(value, key)?),
-            "min-width" => style.min_width = Some(parse_number(value, key)?),
-            "min-height" => style.min_height = Some(parse_number(value, key)?),
-            "max-width" => style.max_width = Some(parse_number(value, key)?),
-            "max-height" => style.max_height = Some(parse_number(value, key)?),
+            "width" => style.width = Some(parse_length(value, key)?),
+            "height" => style.height = Some(parse_length(value, key)?),
+            "min-width" => style.min_width = Some(parse_length(value, key)?),
+            "min-height" => style.min_height = Some(parse_length(value, key)?),
+            "max-width" => style.max_width = Some(parse_length(value, key)?),
+            "max-height" => style.max_height = Some(parse_length(value, key)?),
             "aspect-ratio" => style.aspect_ratio = Some(parse_ratio(value, key)?),
             "display" => {
                 style.display = match value.trim() {
@@ -74,26 +77,26 @@ pub fn style_from_attrs(
             "align-content" => style.align_content = Some(value.trim().to_string()),
             "align-items" => style.align_items = Some(value.trim().to_string()),
             "align-self" => style.align_self = Some(value.trim().to_string()),
-            "flex-basis" => style.flex_basis = Some(parse_number(value, key)?),
+            "flex-basis" => style.flex_basis = Some(parse_length(value, key)?),
             "flex-grow" => style.flex_grow = parse_number(value, key)?,
             "flex-shrink" => style.flex_shrink = parse_number(value, key)?,
-            "gap" => style.gap = Some(parse_number(value, key)?),
-            "row-gap" => style.row_gap = Some(parse_number(value, key)?),
-            "column-gap" => style.column_gap = Some(parse_number(value, key)?),
-            "padding" => style.padding = parse_insets(value, key)?,
-            "padding-top" => style.padding.top = parse_number(value, key)?,
-            "padding-right" => style.padding.right = parse_number(value, key)?,
-            "padding-bottom" => style.padding.bottom = parse_number(value, key)?,
-            "padding-left" => style.padding.left = parse_number(value, key)?,
-            "margin" => style.margin = parse_insets(value, key)?,
-            "margin-top" => style.margin.top = parse_number(value, key)?,
-            "margin-right" => style.margin.right = parse_number(value, key)?,
-            "margin-bottom" => style.margin.bottom = parse_number(value, key)?,
-            "margin-left" => style.margin.left = parse_number(value, key)?,
-            "left" => style.inset.left = parse_number(value, key)?,
-            "right" => style.inset.right = parse_number(value, key)?,
-            "top" => style.inset.top = parse_number(value, key)?,
-            "bottom" => style.inset.bottom = parse_number(value, key)?,
+            "gap" => style.gap = Some(parse_length(value, key)?),
+            "row-gap" => style.row_gap = Some(parse_length(value, key)?),
+            "column-gap" => style.column_gap = Some(parse_length(value, key)?),
+            "padding" => style.padding = parse_length_insets(value, key)?,
+            "padding-top" => style.padding.top = parse_length(value, key)?,
+            "padding-right" => style.padding.right = parse_length(value, key)?,
+            "padding-bottom" => style.padding.bottom = parse_length(value, key)?,
+            "padding-left" => style.padding.left = parse_length(value, key)?,
+            "margin" => style.margin = parse_length_auto_insets(value, key)?,
+            "margin-top" => style.margin.top = parse_length_auto(value, key)?,
+            "margin-right" => style.margin.right = parse_length_auto(value, key)?,
+            "margin-bottom" => style.margin.bottom = parse_length_auto(value, key)?,
+            "margin-left" => style.margin.left = parse_length_auto(value, key)?,
+            "left" => style.inset.left = parse_length_auto(value, key)?,
+            "right" => style.inset.right = parse_length_auto(value, key)?,
+            "top" => style.inset.top = parse_length_auto(value, key)?,
+            "bottom" => style.inset.bottom = parse_length_auto(value, key)?,
             "position" => {
                 style.position = match value.trim() {
                     "relative" => PositionKind::Relative,
@@ -194,10 +197,73 @@ fn parse_ratio(value: &str, attribute: &str) -> Result<f32> {
     parse_number(trimmed, attribute)
 }
 
-fn parse_insets(value: &str, attribute: &str) -> Result<Insets> {
+pub fn parse_length(value: &str, attribute: &str) -> Result<LengthValue> {
+    let trimmed = value.trim();
+    if let Some(percent) = trimmed.strip_suffix('%') {
+        let normalized =
+            percent
+                .trim()
+                .parse::<f32>()
+                .map_err(|_| TaffyCanvasError::InvalidAttribute {
+                    attribute: attribute.to_string(),
+                    message: value.to_string(),
+                })?;
+        return Ok(LengthValue::Percent(normalized / 100.0));
+    }
+
+    Ok(LengthValue::Points(parse_number(trimmed, attribute)?))
+}
+
+fn parse_length_auto(value: &str, attribute: &str) -> Result<LengthAutoValue> {
+    if value.trim() == "auto" {
+        return Ok(LengthAutoValue::Auto);
+    }
+
+    Ok(LengthAutoValue::Length(parse_length(value, attribute)?))
+}
+
+fn parse_length_insets(value: &str, attribute: &str) -> Result<Insets<LengthValue>> {
     let parts = value
         .split_whitespace()
-        .map(|part| parse_number(part, attribute))
+        .map(|part| parse_length(part, attribute))
+        .collect::<Result<Vec<_>>>()?;
+
+    match parts.as_slice() {
+        [all] => Ok(Insets {
+            top: *all,
+            right: *all,
+            bottom: *all,
+            left: *all,
+        }),
+        [vertical, horizontal] => Ok(Insets {
+            top: *vertical,
+            right: *horizontal,
+            bottom: *vertical,
+            left: *horizontal,
+        }),
+        [top, horizontal, bottom] => Ok(Insets {
+            top: *top,
+            right: *horizontal,
+            bottom: *bottom,
+            left: *horizontal,
+        }),
+        [top, right, bottom, left] => Ok(Insets {
+            top: *top,
+            right: *right,
+            bottom: *bottom,
+            left: *left,
+        }),
+        _ => Err(TaffyCanvasError::InvalidAttribute {
+            attribute: attribute.to_string(),
+            message: value.to_string(),
+        }),
+    }
+}
+
+fn parse_length_auto_insets(value: &str, attribute: &str) -> Result<Insets<LengthAutoValue>> {
+    let parts = value
+        .split_whitespace()
+        .map(|part| parse_length_auto(part, attribute))
         .collect::<Result<Vec<_>>>()?;
 
     match parts.as_slice() {

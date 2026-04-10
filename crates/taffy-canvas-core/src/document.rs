@@ -29,12 +29,69 @@ impl Color {
     };
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Insets {
-    pub top: f32,
-    pub right: f32,
-    pub bottom: f32,
-    pub left: f32,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LengthValue {
+    Points(f32),
+    Percent(f32),
+}
+
+impl LengthValue {
+    pub const fn zero() -> Self {
+        Self::Points(0.0)
+    }
+
+    pub fn points(self) -> Option<f32> {
+        match self {
+            Self::Points(value) => Some(value),
+            Self::Percent(_) => None,
+        }
+    }
+}
+
+impl Default for LengthValue {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LengthAutoValue {
+    Length(LengthValue),
+    Auto,
+}
+
+impl LengthAutoValue {
+    pub const fn zero() -> Self {
+        Self::Length(LengthValue::zero())
+    }
+}
+
+impl Default for LengthAutoValue {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Insets<T = f32> {
+    pub top: T,
+    pub right: T,
+    pub bottom: T,
+    pub left: T,
+}
+
+impl<T> Default for Insets<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        Self {
+            top: T::default(),
+            right: T::default(),
+            bottom: T::default(),
+            left: T::default(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -94,12 +151,12 @@ pub struct TextRun {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StyleSpec {
-    pub width: Option<f32>,
-    pub height: Option<f32>,
-    pub min_width: Option<f32>,
-    pub min_height: Option<f32>,
-    pub max_width: Option<f32>,
-    pub max_height: Option<f32>,
+    pub width: Option<LengthValue>,
+    pub height: Option<LengthValue>,
+    pub min_width: Option<LengthValue>,
+    pub min_height: Option<LengthValue>,
+    pub max_width: Option<LengthValue>,
+    pub max_height: Option<LengthValue>,
     pub aspect_ratio: Option<f32>,
     pub flex_direction: Option<String>,
     pub flex_wrap: Option<String>,
@@ -107,15 +164,15 @@ pub struct StyleSpec {
     pub align_content: Option<String>,
     pub align_items: Option<String>,
     pub align_self: Option<String>,
-    pub flex_basis: Option<f32>,
+    pub flex_basis: Option<LengthValue>,
     pub flex_grow: f32,
     pub flex_shrink: f32,
-    pub gap: Option<f32>,
-    pub row_gap: Option<f32>,
-    pub column_gap: Option<f32>,
-    pub padding: Insets,
-    pub margin: Insets,
-    pub inset: Insets,
+    pub gap: Option<LengthValue>,
+    pub row_gap: Option<LengthValue>,
+    pub column_gap: Option<LengthValue>,
+    pub padding: Insets<LengthValue>,
+    pub margin: Insets<LengthAutoValue>,
+    pub inset: Insets<LengthAutoValue>,
     pub display: DisplayKind,
     pub position: PositionKind,
     pub overflow_hidden: bool,

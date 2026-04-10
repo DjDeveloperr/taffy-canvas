@@ -188,6 +188,73 @@ fn layout_supports_row_and_column_gap() {
 }
 
 #[test]
+fn layout_supports_percentage_dimensions_and_padding() {
+    let template = Template::compile(
+        r##"
+        <view width="200" height="100" padding-left="10%" padding-top="20%" background="#ffffff">
+          <view width="50%" height="25%" background="#ff0000" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    let child = &laid_out.root.children[0];
+    assert_eq!(child.layout.x, 20.0);
+    assert_eq!(child.layout.y, 40.0);
+    assert_eq!(child.layout.width, 90.0);
+    assert_eq!(child.layout.height, 15.0);
+}
+
+#[test]
+fn layout_supports_percentage_absolute_insets() {
+    let template = Template::compile(
+        r##"
+        <view width="200" height="100" background="#ffffff">
+          <view width="20" height="10" position="absolute" left="10%" top="20%" background="#ff0000" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    let child = &laid_out.root.children[0];
+    assert_eq!(child.layout.x, 20.0);
+    assert_eq!(child.layout.y, 20.0);
+}
+
+#[test]
+fn layout_supports_auto_margins_for_centering() {
+    let template = Template::compile(
+        r##"
+        <view width="100" height="20" flex-direction="row" background="#ffffff">
+          <view width="10" height="10" margin-left="auto" margin-right="auto" background="#ff0000" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &FixedTextMeasurer::default()).expect("layout succeeds");
+
+    let child = &laid_out.root.children[0];
+    assert_eq!(child.layout.x, 45.0);
+}
+
+#[test]
 fn layout_supports_display_none() {
     let template = Template::compile(
         r##"

@@ -123,16 +123,18 @@ impl Template {
         let width = root
             .style
             .width
+            .and_then(|value| value.points())
             .ok_or_else(|| TaffyCanvasError::InvalidAttribute {
                 attribute: "width".to_string(),
-                message: "root view must declare width".to_string(),
+                message: "root view must declare absolute width".to_string(),
             })?;
         let height = root
             .style
             .height
+            .and_then(|value| value.points())
             .ok_or_else(|| TaffyCanvasError::InvalidAttribute {
                 attribute: "height".to_string(),
-                message: "root view must declare height".to_string(),
+                message: "root view must declare absolute height".to_string(),
             })?;
 
         Ok(Document {
