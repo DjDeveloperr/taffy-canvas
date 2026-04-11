@@ -37,8 +37,14 @@ pub fn layout_document(
     tree.compute_layout_with_measure(
         root_id,
         Size {
-            width: AvailableSpace::Definite(document.width as f32),
-            height: AvailableSpace::Definite(document.height as f32),
+            width: document
+                .width
+                .map(|width| AvailableSpace::Definite(width as f32))
+                .unwrap_or(AvailableSpace::MaxContent),
+            height: document
+                .height
+                .map(|height| AvailableSpace::Definite(height as f32))
+                .unwrap_or(AvailableSpace::MaxContent),
         },
         |known_dimensions, available_space, _node_id, context, _style| {
             measure_node(context, measurer, known_dimensions, available_space)
@@ -47,9 +53,11 @@ pub fn layout_document(
     .map_err(|error| TaffyCanvasError::Layout(error.to_string()))?;
 
     let root = collect_layout(&tree, &document.root, root_id, 0.0, 0.0)?;
+    let width = layout_extent(root.layout.width);
+    let height = layout_extent(root.layout.height);
     Ok(RenderedDocument {
-        width: document.width,
-        height: document.height,
+        width,
+        height,
         root,
     })
 }
@@ -348,6 +356,10 @@ fn definite_space(space: AvailableSpace) -> Option<f32> {
         AvailableSpace::Definite(value) => Some(value),
         _ => None,
     }
+}
+
+fn layout_extent(value: f32) -> u32 {
+    value.max(0.0).ceil() as u32
 }
 
 fn definite_length(length: Option<LengthValue>) -> Option<f32> {

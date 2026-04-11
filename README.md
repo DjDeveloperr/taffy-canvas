@@ -75,7 +75,8 @@ Inline styling:
 Rules:
 
 - Root must be `<view>`.
-- Root `width` and `height` must be absolute lengths.
+- Root `width` and `height` are optional. When omitted, the root view auto-sizes from layout flow.
+- Root `width` and `height` must be absolute lengths when provided.
 - `image` requires `src`.
 - Inline `image` requires explicit `width` and `height`.
 - `text` can use text content or a `value` attribute.

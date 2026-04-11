@@ -270,4 +270,7 @@ The JS binding exposes the same XML features as the Rust core, including:
 - overflow clipping
 - borders, background, radius, and image fitting
 
+The root `<view>` may omit `width` and/or `height` when you want document-like flow sizing.
+When a root dimension is provided, it must be an absolute length.
+
 See [`README.md`](/Users/dj/Developer/taffy-canvas/README.md) for quick examples and [`docs/rust.md`](/Users/dj/Developer/taffy-canvas/docs/rust.md) for the corresponding Rust API.
