@@ -2,6 +2,7 @@
 members = [
   "crates/taffy-canvas-core",
   "crates/taffy-canvas-node",
+  "crates/taffy-canvas-wasm",
 ]
 resolver = "3"
 

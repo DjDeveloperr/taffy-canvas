@@ -10,10 +10,10 @@ use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint,
 use taffy_canvas_core::{
     Color, EncodedImageFormat as RenderEncodedImageFormat, FileSystemResourceProvider,
     FixedTextMeasurer, FontAsset, FontSlant, InlineFragment, LayoutNodeKind, LineHeightValue,
-    MemoryAssetProvider, PngCompression, RenderBackend, RenderBackendPreference, RenderOptions,
-    Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, TaffyCanvasError, Template,
-    TemplateParams, TextDecorationStyleKind, TextMeasurer, WebpEncodingMode, layout_document,
-    render_template,
+    MemoryAssetProvider, NodeKind, PngCompression, RenderBackend, RenderBackendPreference,
+    RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, TaffyCanvasError,
+    Template, TemplateParams, TextDecorationStyleKind, TextMeasurer, WebpEncodingMode,
+    layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -113,6 +113,82 @@ fn template_allows_auto_sized_root_view() {
 
     assert_eq!(document.width, None);
     assert_eq!(document.height, None);
+}
+
+#[test]
+fn preview_nodes_are_accepted_and_ignored_by_rendering() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="180" background="#112233">
+          <preview name="Default">
+            <property key="name" value="Canvas" />
+            <object key="mission">
+              <property key="name" value="North Gate" />
+              <property key="eta" value="04:32" />
+            </object>
+          </preview>
+          <text color="#ffffff">Hello {{name}}</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("name".to_string(), "Canvas".to_string());
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+
+    assert_eq!(document.root.children.len(), 1);
+    assert!(matches!(
+        document.root.children[0].kind,
+        NodeKind::Text { .. }
+    ));
+}
+
+#[test]
+fn preview_nodes_must_be_direct_children_of_root_view() {
+    let error = Template::compile(
+        r##"
+        <view width="320" height="180" background="#112233">
+          <view>
+            <preview name="Invalid">
+              <property key="name" value="Canvas" />
+            </preview>
+          </view>
+        </view>
+        "##,
+    )
+    .expect_err("nested preview should be rejected");
+
+    assert!(
+        error
+            .to_string()
+            .contains("preview nodes are only allowed as direct children of the root view")
+    );
+}
+
+#[test]
+fn template_compiles_from_file() {
+    let dir = temp_test_dir("template-file");
+    let path = dir.join("card.xml");
+    fs::write(
+        &path,
+        r##"<view width="120" height="40"><text color="#ffffff">Hello {{name}}</text></view>"##,
+    )
+    .expect("write template");
+
+    let template = Template::compile_file(&path).expect("template compiles from file");
+    let mut params = TemplateParams::new();
+    params.insert("name".to_string(), "Canvas".to_string());
+
+    let document = template
+        .instantiate(&params)
+        .expect("template instantiates");
+    let NodeKind::Text { value, .. } = &document.root.children[0].kind else {
+        panic!("expected text node");
+    };
+    assert_eq!(value, "Hello Canvas");
 }
 
 #[test]
@@ -1011,6 +1087,81 @@ fn layout_accounts_for_larger_inline_span_font_size() {
         layout_document(&document, &SkiaTextMeasurer::default()).expect("layout succeeds");
 
     assert!(laid_out.root.children[0].layout.height > 24.0);
+}
+
+#[test]
+fn dashboard_hero_text_does_not_measure_too_narrow() {
+    let template = Template::compile(
+        r##"
+        <view
+          width="480"
+          height="270"
+          display="grid"
+          background="#111827"
+          grid-template-columns="140 1fr"
+          grid-template-rows="56 1fr 72"
+          grid-template-areas='"hero hero" "sidebar body" "footer footer"'
+        >
+          <view
+            grid-area="hero"
+            background="#172554"
+            display="flex"
+            flex-direction="row"
+            align-items="center"
+            padding-left="16"
+            padding-right="16"
+          >
+            <text color="#ffffff" font-size="24" flex-grow="1">Mission {{mission.name}}</text>
+          </view>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("mission.name".to_string(), "North Gate".to_string());
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    let laid_out =
+        layout_document(&document, &SkiaTextMeasurer::default()).expect("layout succeeds");
+
+    let hero = &laid_out.root.children[0];
+    let text = &hero.children[0];
+    assert!(hero.layout.width > 400.0);
+    assert!(text.layout.width > 430.0);
+}
+
+#[test]
+fn skia_text_measurement_rounds_up_fractional_widths() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="60" display="flex">
+          <view display="flex" padding-left="12" padding-right="12" padding-top="6" padding-bottom="6">
+            <text font-size="13" color="#ffffff">Mana 31</text>
+          </view>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let layout = layout_document(&document, &SkiaTextMeasurer::default()).expect("layout succeeds");
+
+    let pill = &layout.root.children[0];
+    let text = &pill.children[0];
+
+    assert!(
+        text.layout.width >= 51.0,
+        "text width should round up to avoid wrap-clipping"
+    );
+    assert!(
+        pill.layout.width >= 75.0,
+        "pill width should include rounded-up text width plus padding"
+    );
 }
 
 #[test]

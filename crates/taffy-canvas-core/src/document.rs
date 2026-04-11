@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+use serde::Serialize;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
@@ -29,7 +31,7 @@ impl Color {
     };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum LengthValue {
     Points(f32),
     Percent(f32),
@@ -54,7 +56,7 @@ impl Default for LengthValue {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum LengthAutoValue {
     Length(LengthValue),
     Auto,
@@ -72,7 +74,7 @@ impl Default for LengthAutoValue {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct Insets<T = f32> {
     pub top: T,
     pub right: T,
@@ -94,7 +96,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum PositionKind {
     #[default]
     Relative,
@@ -102,7 +104,7 @@ pub enum PositionKind {
     Fixed,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum OverflowMode {
     #[default]
     Visible,
@@ -110,7 +112,7 @@ pub enum OverflowMode {
     Clip,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum DisplayKind {
     #[default]
     Flex,
@@ -119,7 +121,7 @@ pub enum DisplayKind {
     None,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum TextAlign {
     #[default]
     Start,
@@ -127,7 +129,7 @@ pub enum TextAlign {
     End,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 pub enum ImageFit {
     #[default]
     Fill,
@@ -135,7 +137,7 @@ pub enum ImageFit {
     Cover,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FontStyleSpec {
     pub family: String,
     pub size: u32,
@@ -154,21 +156,21 @@ impl Default for FontStyleSpec {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum FontSlant {
     #[default]
     Normal,
     Italic,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum LineHeightValue {
     Multiplier(f32),
     Percent(f32),
     Points(f32),
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 pub enum TextDecorationStyleKind {
     #[default]
     Solid,
@@ -178,7 +180,7 @@ pub enum TextDecorationStyleKind {
     Wavy,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct TextDecorationSpec {
     pub underline: bool,
     pub overline: bool,
@@ -201,7 +203,7 @@ impl Default for TextDecorationSpec {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct TextShadowSpec {
     pub offset_x: f32,
     pub offset_y: f32,
@@ -209,26 +211,26 @@ pub struct TextShadowSpec {
     pub color: Color,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct TextRun {
     pub text: String,
     pub style: StyleSpec,
     pub href: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct InlineImageRun {
     pub src: String,
     pub style: StyleSpec,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum InlineFragment {
     Text(TextRun),
     Image(InlineImageRun),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct StyleSpec {
     pub width: Option<LengthValue>,
     pub height: Option<LengthValue>,
@@ -341,7 +343,7 @@ impl Default for StyleSpec {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum NodeKind {
     View,
     Text {
@@ -353,7 +355,7 @@ pub enum NodeKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Node {
     pub id: Option<String>,
     pub kind: NodeKind,
@@ -362,14 +364,14 @@ pub struct Node {
     pub children: Vec<Node>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Document {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub root: Node,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub struct LayoutBox {
     pub x: f32,
     pub y: f32,
@@ -377,7 +379,7 @@ pub struct LayoutBox {
     pub height: f32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum LayoutNodeKind {
     View,
     Text {
@@ -389,7 +391,7 @@ pub enum LayoutNodeKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct LayoutNode {
     pub id: Option<String>,
     pub kind: LayoutNodeKind,
@@ -398,7 +400,7 @@ pub struct LayoutNode {
     pub children: Vec<LayoutNode>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RenderedDocument {
     pub width: u32,
     pub height: u32,

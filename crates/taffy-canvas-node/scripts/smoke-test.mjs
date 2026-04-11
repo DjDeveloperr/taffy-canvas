@@ -48,6 +48,28 @@ const manifestResources = binding.createResourcesFromManifest(manifestPath)
 const summary = binding.inspectResources(manifestResources)
 assert.equal(summary.assets, 1)
 
+const templatePath = path.join(tempDir, 'card.xml')
+fs.writeFileSync(
+  templatePath,
+  '<view width="18" height="18" background="#102030"><preview name="Default"><object key="player"><property key="name" value="Canvas" /></object><object key="stats"><property key="hp" value="99" /></object></preview><text color="#ffffff">{{player.name}} {{stats.hp}}</text></view>'
+)
+const loader = binding.createTemplateLoader(templatePath)
+const fileTemplate = loader.compileTemplateFile('./card.xml')
+assert.ok(fileTemplate)
+assert.equal(binding.schemaPath.endsWith(path.join('schemas', 'taffy-canvas.xsd')), true)
+const inspected = loader.inspectTemplateFileLayoutSync('./card.xml', {
+  player: { name: 'Canvas' },
+  stats: { hp: 99 }
+})
+assert.equal(inspected.width, 18)
+assert.equal(inspected.root.kind, 'view')
+assert.equal(inspected.root.children[0].kind, 'text')
+assert.equal(inspected.root.children[0].value, 'Canvas 99')
+assert.equal(inspected.root.overflow.has_overflow, true)
+assert.ok(inspected.root.overflow.right > 0)
+assert.equal(inspected.root.children[0].overflow.has_overflow, false)
+assert.equal(inspected.root.children[0].text.did_wrap, false)
+
 const nestedTemplate = binding.compileTemplate(
   '<view width="18" height="18" background="#102030"><image src="swatch" width="8" height="8" position="absolute" left="5" top="1" fit="fill" /><text color="#ffffff">{{player.name}} {{stats.hp}}</text></view>'
 )
@@ -59,6 +81,13 @@ const session = binding.createTemplateSession(nestedPrepared, {
 const sessionPng = binding.renderTemplateSessionSync(session, { stats: { hp: 99 } }, 'cpu')
 assert.ok(Buffer.isBuffer(sessionPng))
 assert.ok(sessionPng.length > 0)
+
+const filePng = loader.renderTemplateFileSync('./card.xml', {
+  player: { name: 'Canvas' },
+  stats: { hp: 99 }
+}, 'cpu')
+assert.ok(Buffer.isBuffer(filePng))
+assert.ok(filePng.length > 0)
 
 const smallPng = binding.renderTemplateSessionSync(
   session,

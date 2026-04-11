@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+  <xs:annotation>
+    <xs:documentation>
+      Taffy Canvas XML schema. Known attributes are enumerated for IDE completion while
+      xs:anyAttribute keeps existing metadata attributes valid.
+    </xs:documentation>
+  </xs:annotation>
+
+  <xs:simpleType name="templatedString">
+    <xs:restriction base="xs:string">
+      <xs:pattern value=".*\{\{[^}]+\}\}.*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="numberType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="lengthType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)(px|%)?"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="lengthAutoType">
+    <xs:union memberTypes="lengthType templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="auto"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="ratioType">
+    <xs:union memberTypes="numberType templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:pattern value="[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)\s*/\s*[+-]?([0-9]+(\.[0-9]+)?|\.[0-9]+)"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="namedColorType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="transparent"/>
+      <xs:enumeration value="white"/>
+      <xs:enumeration value="black"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="hexColorType">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="colorType">
+    <xs:union memberTypes="templatedString namedColorType hexColorType"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="textDecorationType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="none"/>
+          <xs:enumeration value="underline"/>
+          <xs:enumeration value="overline"/>
+          <xs:enumeration value="line-through"/>
+          <xs:pattern value="(underline|overline|line-through)(\s+(underline|overline|line-through))*"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="stringOrTemplate">
+    <xs:union memberTypes="xs:string templatedString"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="lengthOrTemplate">
+    <xs:union memberTypes="lengthType templatedString"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="numberOrTemplate">
+    <xs:union memberTypes="numberType templatedString"/>
+  </xs:simpleType>
+
+  <xs:simpleType name="displayType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="flex"/>
+          <xs:enumeration value="block"/>
+          <xs:enumeration value="grid"/>
+          <xs:enumeration value="none"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="positionType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="relative"/>
+          <xs:enumeration value="absolute"/>
+          <xs:enumeration value="fixed"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="overflowType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="visible"/>
+          <xs:enumeration value="hidden"/>
+          <xs:enumeration value="clip"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="imageFitType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="fill"/>
+          <xs:enumeration value="contain"/>
+          <xs:enumeration value="cover"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="fontStyleType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="normal"/>
+          <xs:enumeration value="italic"/>
+          <xs:enumeration value="oblique"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="textAlignType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="start"/>
+          <xs:enumeration value="left"/>
+          <xs:enumeration value="center"/>
+          <xs:enumeration value="end"/>
+          <xs:enumeration value="right"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:simpleType name="textDecorationStyleType">
+    <xs:union memberTypes="templatedString">
+      <xs:simpleType>
+        <xs:restriction base="xs:string">
+          <xs:enumeration value="solid"/>
+          <xs:enumeration value="double"/>
+          <xs:enumeration value="dotted"/>
+          <xs:enumeration value="dashed"/>
+          <xs:enumeration value="wavy"/>
+        </xs:restriction>
+      </xs:simpleType>
+    </xs:union>
+  </xs:simpleType>
+
+  <xs:attributeGroup name="sharedNodeAttrs">
+    <xs:attribute name="id" type="stringOrTemplate"/>
+    <xs:attribute name="width" type="lengthOrTemplate"/>
+    <xs:attribute name="height" type="lengthOrTemplate"/>
+    <xs:attribute name="min-width" type="lengthOrTemplate"/>
+    <xs:attribute name="min-height" type="lengthOrTemplate"/>
+    <xs:attribute name="max-width" type="lengthOrTemplate"/>
+    <xs:attribute name="max-height" type="lengthOrTemplate"/>
+    <xs:attribute name="aspect-ratio" type="ratioType"/>
+    <xs:attribute name="display" type="displayType"/>
+    <xs:attribute name="flex-direction" type="stringOrTemplate"/>
+    <xs:attribute name="flex-wrap" type="stringOrTemplate"/>
+    <xs:attribute name="justify-content" type="stringOrTemplate"/>
+    <xs:attribute name="align-content" type="stringOrTemplate"/>
+    <xs:attribute name="align-items" type="stringOrTemplate"/>
+    <xs:attribute name="align-self" type="stringOrTemplate"/>
+    <xs:attribute name="justify-items" type="stringOrTemplate"/>
+    <xs:attribute name="justify-self" type="stringOrTemplate"/>
+    <xs:attribute name="place-content" type="stringOrTemplate"/>
+    <xs:attribute name="place-items" type="stringOrTemplate"/>
+    <xs:attribute name="place-self" type="stringOrTemplate"/>
+    <xs:attribute name="flex-basis" type="lengthOrTemplate"/>
+    <xs:attribute name="flex" type="stringOrTemplate"/>
+    <xs:attribute name="flex-grow" type="numberOrTemplate"/>
+    <xs:attribute name="flex-shrink" type="numberOrTemplate"/>
+    <xs:attribute name="grid-template-columns" type="stringOrTemplate"/>
+    <xs:attribute name="grid-template-rows" type="stringOrTemplate"/>
+    <xs:attribute name="grid-template-areas" type="stringOrTemplate"/>
+    <xs:attribute name="grid-template" type="stringOrTemplate"/>
+    <xs:attribute name="grid-auto-columns" type="stringOrTemplate"/>
+    <xs:attribute name="grid-auto-rows" type="stringOrTemplate"/>
+    <xs:attribute name="grid-auto-flow" type="stringOrTemplate"/>
+    <xs:attribute name="grid-area" type="stringOrTemplate"/>
+    <xs:attribute name="grid-column" type="stringOrTemplate"/>
+    <xs:attribute name="grid-row" type="stringOrTemplate"/>
+    <xs:attribute name="grid-column-start" type="stringOrTemplate"/>
+    <xs:attribute name="grid-column-end" type="stringOrTemplate"/>
+    <xs:attribute name="grid-row-start" type="stringOrTemplate"/>
+    <xs:attribute name="grid-row-end" type="stringOrTemplate"/>
+    <xs:attribute name="gap" type="lengthOrTemplate"/>
+    <xs:attribute name="row-gap" type="lengthOrTemplate"/>
+    <xs:attribute name="column-gap" type="lengthOrTemplate"/>
+    <xs:attribute name="size" type="stringOrTemplate"/>
+    <xs:attribute name="min-size" type="stringOrTemplate"/>
+    <xs:attribute name="max-size" type="stringOrTemplate"/>
+    <xs:attribute name="padding" type="stringOrTemplate"/>
+    <xs:attribute name="padding-block" type="stringOrTemplate"/>
+    <xs:attribute name="padding-inline" type="stringOrTemplate"/>
+    <xs:attribute name="padding-top" type="lengthOrTemplate"/>
+    <xs:attribute name="padding-right" type="lengthOrTemplate"/>
+    <xs:attribute name="padding-bottom" type="lengthOrTemplate"/>
+    <xs:attribute name="padding-left" type="lengthOrTemplate"/>
+    <xs:attribute name="margin" type="stringOrTemplate"/>
+    <xs:attribute name="margin-block" type="stringOrTemplate"/>
+    <xs:attribute name="margin-inline" type="stringOrTemplate"/>
+    <xs:attribute name="margin-top" type="lengthAutoType"/>
+    <xs:attribute name="margin-right" type="lengthAutoType"/>
+    <xs:attribute name="margin-bottom" type="lengthAutoType"/>
+    <xs:attribute name="margin-left" type="lengthAutoType"/>
+    <xs:attribute name="inset" type="stringOrTemplate"/>
+    <xs:attribute name="inset-block" type="stringOrTemplate"/>
+    <xs:attribute name="inset-inline" type="stringOrTemplate"/>
+    <xs:attribute name="left" type="lengthAutoType"/>
+    <xs:attribute name="right" type="lengthAutoType"/>
+    <xs:attribute name="top" type="lengthAutoType"/>
+    <xs:attribute name="bottom" type="lengthAutoType"/>
+    <xs:attribute name="position" type="positionType"/>
+    <xs:attribute name="overflow" type="overflowType"/>
+    <xs:attribute name="overflow-x" type="overflowType"/>
+    <xs:attribute name="overflow-y" type="overflowType"/>
+    <xs:attribute name="background" type="colorType"/>
+    <xs:attribute name="background-color" type="colorType"/>
+    <xs:attribute name="border-color" type="colorType"/>
+    <xs:attribute name="border" type="stringOrTemplate"/>
+    <xs:attribute name="border-width" type="numberOrTemplate"/>
+    <xs:attribute name="radius" type="numberOrTemplate"/>
+    <xs:attribute name="border-radius" type="numberOrTemplate"/>
+    <xs:attribute name="color" type="colorType"/>
+    <xs:attribute name="font-size" type="numberOrTemplate"/>
+    <xs:attribute name="font-family" type="stringOrTemplate"/>
+    <xs:attribute name="font-weight" type="numberOrTemplate"/>
+    <xs:attribute name="font-style" type="fontStyleType"/>
+    <xs:attribute name="line-height" type="stringOrTemplate"/>
+    <xs:attribute name="letter-spacing" type="numberOrTemplate"/>
+    <xs:attribute name="word-spacing" type="numberOrTemplate"/>
+    <xs:attribute name="baseline-shift" type="numberOrTemplate"/>
+    <xs:attribute name="text-shadow" type="stringOrTemplate"/>
+    <xs:attribute name="text-decoration" type="textDecorationType"/>
+    <xs:attribute name="text-decoration-color" type="colorType"/>
+    <xs:attribute name="text-decoration-style" type="textDecorationStyleType"/>
+    <xs:attribute name="text-decoration-thickness" type="numberOrTemplate"/>
+    <xs:attribute name="align" type="textAlignType"/>
+    <xs:attribute name="text-align" type="textAlignType"/>
+    <xs:attribute name="fit" type="imageFitType"/>
+    <xs:anyAttribute processContents="skip"/>
+  </xs:attributeGroup>
+
+  <xs:attributeGroup name="textNodeAttrs">
+    <xs:attribute name="value" type="stringOrTemplate"/>
+    <xs:attribute name="href" type="stringOrTemplate"/>
+  </xs:attributeGroup>
+
+  <xs:attributeGroup name="imageNodeAttrs">
+    <xs:attribute name="src" type="stringOrTemplate" use="required"/>
+  </xs:attributeGroup>
+
+  <xs:group name="rootChildren">
+    <xs:choice>
+      <xs:element name="view" type="nestedViewType"/>
+      <xs:element ref="text"/>
+      <xs:element ref="image"/>
+      <xs:element ref="preview"/>
+    </xs:choice>
+  </xs:group>
+
+  <xs:group name="nestedChildren">
+    <xs:choice>
+      <xs:element name="view" type="nestedViewType"/>
+      <xs:element ref="text"/>
+      <xs:element ref="image"/>
+    </xs:choice>
+  </xs:group>
+
+  <xs:group name="previewChildren">
+    <xs:choice>
+      <xs:element ref="property"/>
+      <xs:element ref="object"/>
+    </xs:choice>
+  </xs:group>
+
+  <xs:group name="inlineChildren">
+    <xs:choice>
+      <xs:element ref="span"/>
+      <xs:element ref="a"/>
+      <xs:element ref="strong"/>
+      <xs:element ref="em"/>
+      <xs:element ref="u"/>
+      <xs:element ref="s"/>
+      <xs:element ref="strike"/>
+      <xs:element ref="sup"/>
+      <xs:element ref="sub"/>
+      <xs:element ref="small"/>
+      <xs:element ref="mark"/>
+      <xs:element ref="br"/>
+      <xs:element ref="image"/>
+    </xs:choice>
+  </xs:group>
+
+  <xs:complexType name="rootViewType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="rootChildren"/>
+    </xs:sequence>
+    <xs:attributeGroup ref="sharedNodeAttrs"/>
+  </xs:complexType>
+
+  <xs:complexType name="nestedViewType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="nestedChildren"/>
+    </xs:sequence>
+    <xs:attributeGroup ref="sharedNodeAttrs"/>
+  </xs:complexType>
+
+  <xs:complexType name="imageType">
+    <xs:attributeGroup ref="sharedNodeAttrs"/>
+    <xs:attributeGroup ref="imageNodeAttrs"/>
+  </xs:complexType>
+
+  <xs:complexType name="previewType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="previewChildren"/>
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="previewObjectType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="previewChildren"/>
+    </xs:sequence>
+    <xs:attribute name="key" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="previewPropertyType">
+    <xs:attribute name="key" type="xs:string" use="required"/>
+    <xs:attribute name="value" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="inlineTextType" mixed="true">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="inlineChildren"/>
+    </xs:sequence>
+    <xs:attributeGroup ref="sharedNodeAttrs"/>
+    <xs:attributeGroup ref="textNodeAttrs"/>
+  </xs:complexType>
+
+  <xs:element name="view" type="rootViewType"/>
+  <xs:element name="text" type="inlineTextType"/>
+  <xs:element name="preview" type="previewType"/>
+  <xs:element name="object" type="previewObjectType"/>
+  <xs:element name="property" type="previewPropertyType"/>
+  <xs:element name="span" type="inlineTextType"/>
+  <xs:element name="a" type="inlineTextType"/>
+  <xs:element name="strong" type="inlineTextType"/>
+  <xs:element name="em" type="inlineTextType"/>
+  <xs:element name="u" type="inlineTextType"/>
+  <xs:element name="s" type="inlineTextType"/>
+  <xs:element name="strike" type="inlineTextType"/>
+  <xs:element name="sup" type="inlineTextType"/>
+  <xs:element name="sub" type="inlineTextType"/>
+  <xs:element name="small" type="inlineTextType"/>
+  <xs:element name="mark" type="inlineTextType"/>
+  <xs:element name="image" type="imageType"/>
+  <xs:element name="br" type="xs:anyType"/>
+</xs:schema>

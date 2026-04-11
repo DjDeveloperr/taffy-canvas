@@ -1,0 +1,88 @@
+<view
+  width="480"
+  height="270"
+  display="grid"
+  background="#111827"
+  grid-template-columns="140 1fr"
+  grid-template-rows="56 1fr 72"
+  grid-template-areas='"hero hero" "sidebar body" "footer footer"'
+>
+  <preview name="Default">
+    <object key="mission">
+      <property key="name" value="North Gate" />
+      <property key="zone" value="A-12" />
+      <property key="threat" value="Medium" />
+      <property key="eta" value="04:32" />
+      <property key="squad" value="Echo" />
+    </object>
+    <object key="objectives">
+      <property key="primary" value="Secure the relay" />
+      <property key="secondary" value="Recover the key" />
+      <property key="bonus" value="Leave no alarms" />
+    </object>
+  </preview>
+  <preview name="Critical">
+    <object key="mission">
+      <property key="name" value="Blackout" />
+      <property key="zone" value="C-07" />
+      <property key="threat" value="Critical" />
+      <property key="eta" value="00:48" />
+      <property key="squad" value="Nova" />
+    </object>
+    <object key="objectives">
+      <property key="primary" value="Stabilize the core" />
+      <property key="secondary" value="Evacuate civilians" />
+      <property key="bonus" value="Preserve aux power" />
+    </object>
+  </preview>
+  <view
+    grid-area="hero"
+    background="#172554"
+    display="flex"
+    flex-direction="row"
+    align-items="center"
+    padding-left="16"
+    padding-right="16"
+  >
+    <text color="#ffffff" font-size="24" flex-grow="1">Mission {{mission.name}}</text>
+  </view>
+  <view
+    grid-area="sidebar"
+    background="#0f766e"
+    display="flex"
+    flex-direction="column"
+    justify-content="center"
+    row-gap="8"
+    padding-left="16"
+    padding-right="16"
+  >
+    <text color="#ecfeff" font-size="16">Zone {{mission.zone}}</text>
+    <text color="#ccfbf1" font-size="14">Threat {{mission.threat}}</text>
+  </view>
+  <view
+    grid-area="body"
+    background="#1f2937"
+    display="flex"
+    flex-direction="column"
+    justify-content="center"
+    row-gap="10"
+    padding-left="20"
+    padding-right="20"
+  >
+    <text color="#ffffff" font-size="20">Objectives</text>
+    <text color="#d1d5db" font-size="14">1. {{objectives.primary}}</text>
+    <text color="#d1d5db" font-size="14">2. {{objectives.secondary}}</text>
+    <text color="#d1d5db" font-size="14">3. {{objectives.bonus}}</text>
+  </view>
+  <view
+    grid-area="footer"
+    background="#312e81"
+    display="flex"
+    flex-direction="row"
+    align-items="center"
+    padding-left="20"
+    padding-right="20"
+  >
+    <text color="#e0e7ff" font-size="16" flex-grow="1">ETA {{mission.eta}}  •  Squad {{mission.squad}}</text>
+  </view>
+</view>

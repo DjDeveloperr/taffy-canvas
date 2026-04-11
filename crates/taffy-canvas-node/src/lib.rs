@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::Path,
     sync::{Arc, OnceLock},
@@ -10,10 +11,12 @@ use napi::{
     bindgen_prelude::{Buffer, Either, External},
 };
 use napi_derive::napi;
+use serde::Serialize;
 use serde_json::Value;
 use taffy_canvas_core::{
-    EncodedImageFormat, MemoryAssetProvider, OutputSize, RenderBackendPreference, RenderOptions,
-    Renderer, RendererConfig, RendererThreads, Template, TemplateParams, WebpEncodingMode,
+    EncodedImageFormat, LayoutBox, LayoutNode, LayoutNodeKind, MemoryAssetProvider, Node,
+    OutputSize, RenderBackendPreference, RenderOptions, Renderer, RendererConfig, RendererThreads,
+    SkiaTextMeasurer, StyleSpec, Template, TemplateParams, WebpEncodingMode, layout_document,
 };
 
 static DEFAULT_RENDERER: OnceLock<Renderer> = OnceLock::new();
@@ -29,6 +32,50 @@ pub struct PreparedTemplateHandle {
 pub struct TemplateSessionHandle {
     prepared: PreparedTemplateHandle,
     base_params: TemplateParams,
+}
+
+#[derive(Serialize)]
+struct LayoutInspectionDocument {
+    width: u32,
+    height: u32,
+    root: LayoutInspectionNode,
+}
+
+#[derive(Serialize)]
+struct LayoutInspectionNode {
+    path: String,
+    id: Option<String>,
+    kind: String,
+    value: Option<String>,
+    src: Option<String>,
+    fragments: Option<Vec<taffy_canvas_core::InlineFragment>>,
+    text: Option<LayoutInspectionText>,
+    style: StyleSpec,
+    layout: LayoutBox,
+    content_bounds: LayoutBox,
+    overflow: LayoutInspectionOverflow,
+    metadata: BTreeMap<String, String>,
+    children: Vec<LayoutInspectionNode>,
+}
+
+#[derive(Clone, Copy, Serialize)]
+struct LayoutInspectionOverflow {
+    has_overflow: bool,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+}
+
+#[derive(Serialize)]
+struct LayoutInspectionText {
+    line_count: usize,
+    did_wrap: bool,
+    paragraph_width: f32,
+    paragraph_height: f32,
+    longest_line: f32,
+    min_intrinsic_width: f32,
+    max_intrinsic_width: f32,
 }
 
 #[napi(object)]
@@ -149,6 +196,26 @@ pub fn inspect_resources(resources: &External<MemoryAssetProvider>) -> ResourceS
 pub fn compile_template(xml: String) -> Result<External<Template>> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
     Ok(External::new(template))
+}
+
+#[napi]
+pub fn compile_template_file(path: String) -> Result<External<Template>> {
+    let template = Template::compile_file(&path).map_err(to_napi_error)?;
+    Ok(External::new(template))
+}
+
+#[napi]
+pub fn inspect_xml_layout_sync(xml: String, params: Option<Value>) -> Result<Value> {
+    let template = Template::compile(&xml).map_err(to_napi_error)?;
+    inspect_template_layout(&template, normalize_params(params)?)
+}
+
+#[napi]
+pub fn inspect_compiled_layout_sync(
+    template: &External<Template>,
+    params: Option<Value>,
+) -> Result<Value> {
+    inspect_template_layout(template.as_ref(), normalize_params(params)?)
 }
 
 #[napi]
@@ -497,6 +564,170 @@ fn render_with_template(
         .render_owned(template, params, resources, options)
         .map_err(to_napi_error)?;
     Ok(output.encoded_bytes)
+}
+
+fn inspect_template_layout(template: &Template, params: TemplateParams) -> Result<Value> {
+    let document = template.instantiate(&params).map_err(to_napi_error)?;
+    let measurer = SkiaTextMeasurer::default();
+    let layout = layout_document(&document, &measurer).map_err(to_napi_error)?;
+    let inspection = LayoutInspectionDocument {
+        width: layout.width,
+        height: layout.height,
+        root: inspect_layout_node(&document.root, &layout.root, "0".to_string(), &measurer)?,
+    };
+    serde_json::to_value(inspection).map_err(to_napi_error)
+}
+
+fn inspect_layout_node(
+    node: &Node,
+    layout: &LayoutNode,
+    path: String,
+    measurer: &SkiaTextMeasurer,
+) -> Result<LayoutInspectionNode> {
+    if node.children.len() != layout.children.len() {
+        return Err(Error::new(
+            Status::GenericFailure,
+            format!(
+                "layout tree shape mismatch at `{path}`: document has {} children but layout has {}",
+                node.children.len(),
+                layout.children.len()
+            ),
+        ));
+    }
+
+    let (kind, value, src, fragments) = match &layout.kind {
+        LayoutNodeKind::View => ("view".to_string(), None, None, None),
+        LayoutNodeKind::Text { value, fragments } => (
+            "text".to_string(),
+            Some(value.clone()),
+            None,
+            Some(fragments.clone()),
+        ),
+        LayoutNodeKind::Image { src } => ("image".to_string(), None, Some(src.clone()), None),
+    };
+
+    let children = node
+        .children
+        .iter()
+        .zip(layout.children.iter())
+        .enumerate()
+        .map(|(index, (child_node, child_layout))| {
+            inspect_layout_node(
+                child_node,
+                child_layout,
+                format!("{path}.{index}"),
+                measurer,
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    let text = match &layout.kind {
+        LayoutNodeKind::Text { fragments, .. } => {
+            Some(inspect_text_node(layout, fragments, measurer))
+        }
+        _ => None,
+    };
+
+    let content_bounds = content_bounds_for_node(layout.layout, &children, text.as_ref());
+    let overflow = overflow_for_bounds(layout.layout, content_bounds);
+
+    Ok(LayoutInspectionNode {
+        path,
+        id: node.id.clone(),
+        kind,
+        value,
+        src,
+        fragments,
+        text,
+        style: layout.style.clone(),
+        layout: layout.layout,
+        content_bounds,
+        overflow,
+        metadata: node.metadata.clone(),
+        children,
+    })
+}
+
+fn content_bounds_for_node(
+    layout: LayoutBox,
+    children: &[LayoutInspectionNode],
+    text: Option<&LayoutInspectionText>,
+) -> LayoutBox {
+    if let Some(text) = text {
+        return LayoutBox {
+            x: layout.x,
+            y: layout.y,
+            width: text.paragraph_width.max(layout.width),
+            height: text.paragraph_height,
+        };
+    }
+
+    if children.is_empty() {
+        return layout;
+    }
+
+    let mut left = f32::INFINITY;
+    let mut top = f32::INFINITY;
+    let mut right = f32::NEG_INFINITY;
+    let mut bottom = f32::NEG_INFINITY;
+
+    for child in children {
+        let bounds = child.content_bounds;
+        left = left.min(bounds.x);
+        top = top.min(bounds.y);
+        right = right.max(bounds.x + bounds.width);
+        bottom = bottom.max(bounds.y + bounds.height);
+    }
+
+    LayoutBox {
+        x: left,
+        y: top,
+        width: (right - left).max(0.0),
+        height: (bottom - top).max(0.0),
+    }
+}
+
+fn overflow_for_bounds(layout: LayoutBox, content_bounds: LayoutBox) -> LayoutInspectionOverflow {
+    let layout_right = layout.x + layout.width;
+    let layout_bottom = layout.y + layout.height;
+    let content_right = content_bounds.x + content_bounds.width;
+    let content_bottom = content_bounds.y + content_bounds.height;
+
+    let left = (layout.x - content_bounds.x).max(0.0);
+    let top = (layout.y - content_bounds.y).max(0.0);
+    let right = (content_right - layout_right).max(0.0);
+    let bottom = (content_bottom - layout_bottom).max(0.0);
+
+    LayoutInspectionOverflow {
+        has_overflow: left > 0.0 || top > 0.0 || right > 0.0 || bottom > 0.0,
+        left,
+        top,
+        right,
+        bottom,
+    }
+}
+
+fn inspect_text_node(
+    layout: &LayoutNode,
+    fragments: &[taffy_canvas_core::InlineFragment],
+    measurer: &SkiaTextMeasurer,
+) -> LayoutInspectionText {
+    let mut scene = measurer.build_paragraph_scene(fragments, &layout.style);
+    scene.paragraph.layout(layout.layout.width.max(1.0));
+    let line_count = scene.paragraph.get_line_metrics().len();
+    let paragraph_height = scene.paragraph.height();
+    let longest_line = scene.paragraph.longest_line();
+    let min_intrinsic_width = scene.paragraph.min_intrinsic_width();
+    let max_intrinsic_width = scene.paragraph.max_intrinsic_width();
+    LayoutInspectionText {
+        line_count,
+        did_wrap: line_count > 1,
+        paragraph_width: longest_line,
+        paragraph_height,
+        longest_line,
+        min_intrinsic_width,
+        max_intrinsic_width,
+    }
 }
 
 fn parse_render_options(input: Option<Either<String, RenderConfig>>) -> Result<RenderOptions> {

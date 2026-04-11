@@ -1,0 +1,77 @@
+<view
+  width="420"
+  height="120"
+  background="#0f172a"
+  display="flex"
+  flex-direction="row"
+  align-items="center"
+  column-gap="12"
+  padding-left="16"
+  padding-right="16"
+>
+  <preview name="Default">
+    <object key="player">
+      <property key="name" value="Canvas" />
+      <property key="rank" value="7" />
+    </object>
+    <object key="stats">
+      <property key="hp" value="84" />
+      <property key="mp" value="31" />
+      <property key="xp" value="1200" />
+    </object>
+  </preview>
+  <preview name="Boss Fight">
+    <object key="player">
+      <property key="name" value="Nyx" />
+      <property key="rank" value="12" />
+    </object>
+    <object key="stats">
+      <property key="hp" value="126" />
+      <property key="mp" value="58" />
+      <property key="xp" value="3480" />
+    </object>
+  </preview>
+  <view width="96" height="88" radius="16" background="#1d4ed8" />
+  <view display="flex" flex-grow="1" height="88" flex-direction="column" justify-content="center" row-gap="4">
+    <text color="#ffffff" font-size="24"><strong>{{player.name}}</strong></text>
+    <text color="#93c5fd" font-size="14">Rank <span color="#f8fafc">#{{player.rank}}</span></text>
+    <view display="flex" flex-direction="row" column-gap="8" margin-top="4">
+      <view
+        display="flex"
+        radius="16"
+        background="#1e293b"
+        align-items="center"
+        padding-left="12"
+        padding-right="12"
+        padding-top="6"
+        padding-bottom="6"
+      >
+        <text color="#f8fafc" font-size="13">HP {{stats.hp}}</text>
+      </view>
+      <view
+        display="flex"
+        radius="16"
+        background="#1e293b"
+        align-items="center"
+        padding-left="12"
+        padding-right="12"
+        padding-top="6"
+        padding-bottom="6"
+      >
+        <text color="#f8fafc" font-size="13">Mana {{stats.mp}}</text>
+      </view>
+      <view
+        display="flex"
+        radius="16"
+        background="#1e293b"
+        align-items="center"
+        padding-left="12"
+        padding-right="12"
+        padding-top="6"
+        padding-bottom="6"
+      >
+        <text color="#f8fafc" font-size="13">XP {{stats.xp}}</text>
+      </view>
+    </view>
+  </view>
+</view>

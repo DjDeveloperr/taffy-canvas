@@ -1,0 +1,92 @@
+{
+  "name": "taffy-canvas-preview",
+  "displayName": "Taffy Canvas Preview",
+  "version": "0.1.0",
+  "publisher": "djdeveloperr",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DjDeveloperr/taffy-canvas.git"
+  },
+  "files": [
+    "LICENSE",
+    "README.md",
+    "extension.js",
+    "media/**",
+    "schemas/**",
+    "web/**"
+  ],
+  "scripts": {
+    "prepare:runtime": "node ./scripts/sync-web-runtime.mjs",
+    "package:vsix": "node ./scripts/package-vsix.mjs",
+    "install:local": "npm run package:vsix && code --install-extension redhat.vscode-xml --force && code --install-extension taffy-canvas-preview-0.1.0.vsix --force"
+  },
+  "extensionDependencies": [
+    "redhat.vscode-xml"
+  ],
+  "engines": {
+    "vscode": "^1.98.0"
+  },
+  "keywords": [
+    "taffy",
+    "xml",
+    "preview"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onLanguage:xml",
+    "onCommand:taffyCanvas.openPreview"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "xml",
+        "filenamePatterns": [
+          "*.taffy.xml"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "command": "taffyCanvas.openPreview",
+        "title": "Open Taffy Canvas Preview",
+        "icon": {
+          "light": "media/open-preview-light.svg",
+          "dark": "media/open-preview-dark.svg"
+        }
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "taffyCanvas.openPreview",
+          "when": "resourceLangId == xml && resourceFilename =~ /\\.taffy\\.xml$/i",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Taffy Canvas",
+      "properties": {
+        "taffyCanvas.preview.params": {
+          "type": "object",
+          "default": {},
+          "description": "Base template params injected into the live preview before any XML <preview> preset overrides are applied."
+        },
+        "taffyCanvas.preview.resourceManifest": {
+          "type": "string",
+          "default": "",
+          "description": "Optional resource manifest path, relative to the workspace folder or the template file."
+        },
+        "taffyCanvas.preview.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Refresh the preview automatically when the active XML document changes."
+        }
+      }
+    }
+  }
+}

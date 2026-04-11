@@ -8,6 +8,7 @@ It combines:
 - [`taffy`](https://github.com/DioxusLabs/taffy) for layout
 - a small XML template format for declarative scene description
 - a `napi-rs` wrapper for Node.js
+- a Skia-backed wasm surface for browser-side image rendering
 
 The goal is to describe an image once, bind data into it quickly, and render it repeatedly on CPU or GPU.
 
@@ -15,6 +16,10 @@ The goal is to describe an image once, bind data into it quickly, and render it 
 
 - [`crates/taffy-canvas-core`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-core): Rust rendering engine
 - [`crates/taffy-canvas-node`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-node): Node.js bindings and npm packaging
+- [`crates/taffy-canvas-wasm`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-wasm): Skia-backed wasm exports for browser image rendering
+- [`packages/taffy-canvas-web`](/Users/dj/Developer/taffy-canvas/packages/taffy-canvas-web): JS wrapper around the wasm renderer
+- [`packages/taffy-canvas-vscode`](/Users/dj/Developer/taffy-canvas/packages/taffy-canvas-vscode): VS Code preview extension
+- [`examples`](/Users/dj/.codex/worktrees/5273/taffy-canvas/examples): sample `*.taffy.xml` templates
 - [`docs/rust.md`](/Users/dj/Developer/taffy-canvas/docs/rust.md): Rust API reference
 - [`docs/js.md`](/Users/dj/Developer/taffy-canvas/docs/js.md): JavaScript API reference
 - [`AGENTS.md`](/Users/dj/Developer/taffy-canvas/AGENTS.md): contributor guidance for coding agents
@@ -45,6 +50,12 @@ The goal is to describe an image once, bind data into it quickly, and render it 
   - prepared templates
   - template sessions for base params plus per-render overrides
   - decoded and prepared image caches
+- Tooling:
+  - XSD schema for XML autocomplete and external linting
+  - caller-relative template file loading in Node
+  - computed layout inspection in Node for debugging measured boxes and resolved text/image nodes
+  - local VS Code live preview using the browser wasm renderer
+  - `*.taffy.xml` file association plus bundled schema hookup in the VS Code extension
 - Backends:
   - CPU everywhere
   - GPU on macOS via Metal
@@ -72,6 +83,7 @@ Auto-sized root for document-style flow:
   </view>
 </view>
 ```
+Recommended file naming: `*.taffy.xml`, for example `card.taffy.xml`.
 
 Inline styling:
 
@@ -89,9 +101,39 @@ Rules:
 - Root must be `<view>`.
 - Root `width` and `height` are optional. When omitted, the root view auto-sizes from layout flow.
 - Root `width` and `height` must be absolute lengths when provided.
+- `<preview>` is optional editor-only metadata and may only appear as a direct child of the root `<view>`.
+- `<preview>` may contain `<property key="..." value="..."/>` and nested `<object key="...">...</object>` entries.
 - `image` requires `src`.
 - Inline `image` requires explicit `width` and `height`.
 - `text` can use text content or a `value` attribute.
+
+Preview presets for the VS Code extension:
+
+```xml
+<view width="320" height="180" background="#101820">
+  <preview name="Default">
+    <property key="name" value="Canvas" />
+    <object key="stats">
+      <property key="hp" value="42" />
+    </object>
+  </preview>
+  <preview name="Boss">
+    <property key="name" value="Nyx" />
+    <object key="stats">
+      <property key="hp" value="120" />
+    </object>
+  </preview>
+
+  <text color="#ffffff">Hello {{name}}</text>
+</view>
+```
+
+The preview extension reads these presets from the XML file and merges the selected one over `taffyCanvas.preview.params`.
+
+Schema:
+
+- npm package path: [`crates/taffy-canvas-node/schemas/taffy-canvas.xsd`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-node/schemas/taffy-canvas.xsd)
+- CLI example: `xmllint --noout --schema "$(node -p 'require(\"taffy-canvas\").schemaPath')" card.xml`
 
 ## Rust Usage
 
@@ -134,6 +176,13 @@ std::fs::write("out.webp", output.encoded_bytes)?;
 # Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
 ```
 
+File-based compile:
+
+```rust
+let template = Template::compile_file("./templates/card.xml")?;
+# Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
+```
+
 Prepared template plus base session:
 
 ```rust
@@ -163,8 +212,8 @@ let output = session.render(&frame, RenderOptions::default())?;
 ```js
 const {
   createResourcesFromManifest,
+  createTemplateLoader,
   createRenderer,
-  compileTemplate,
   prepareTemplateWithRenderer,
   createTemplateSession,
   renderTemplateSession,
@@ -172,13 +221,8 @@ const {
 
 const renderer = createRenderer({ minThreads: 2, maxThreads: 8, idleMs: 5000 });
 const resources = createResourcesFromManifest("./assets/resources.json");
-
-const template = compileTemplate(`
-  <view width="320" height="180" background="#101820">
-    <text color="#ffffff">{{player.name}} {{stats.hp}}</text>
-    <image src="avatar" width="64" height="64" fit="cover" />
-  </view>
-`);
+const loader = createTemplateLoader(__filename);
+const template = loader.compileTemplateFile("./templates/card.xml");
 
 const prepared = prepareTemplateWithRenderer(renderer, resources, template);
 const session = createTemplateSession(prepared, {
@@ -203,10 +247,21 @@ Common project commands:
 
 ```bash
 npm run build
+npm run build:wasm
 npm run test
 npm run ci
 npm run bench
 ```
+
+`npm run build:wasm` bootstraps a repo-local EMSDK under `.tools/emsdk` when needed and builds the exact Skia renderer for `wasm32-unknown-emscripten`. On macOS it expects LLVM/libclang to be available, such as Homebrew `llvm`.
+
+To package the local VS Code preview extension as a self-contained VSIX, run:
+
+```bash
+npm --workspace packages/taffy-canvas-vscode run package:vsix
+```
+
+That command stages only the extension payload before invoking `vsce`, so packaging stays isolated from the rest of the monorepo.
 
 Equivalent lower-level commands still work, but the root npm scripts are the intended entrypoint for day-to-day development.
 

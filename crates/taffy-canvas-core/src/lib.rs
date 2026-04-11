@@ -1,14 +1,20 @@
+#[cfg(feature = "renderer")]
 mod asset;
 mod document;
 mod error;
 mod layout;
+mod measure;
 mod parser;
+#[cfg(feature = "renderer")]
 mod pool;
+#[cfg(feature = "renderer")]
 mod render;
 mod style;
 mod template;
+#[cfg(feature = "renderer")]
 mod text;
 
+#[cfg(feature = "renderer")]
 pub use asset::{
     AssetProvider, FileSystemResourceProvider, FontAsset, MemoryAssetProvider, PreparedImageKey,
     PreparedImageRequest, ResourceProvider,
@@ -21,11 +27,15 @@ pub use document::{
 };
 pub use error::{Result, TaffyCanvasError};
 pub use layout::layout_document;
-pub use parser::parse_template;
+pub use measure::{FixedTextMeasurer, TextMeasurer, TextMetrics};
+pub use parser::{parse_template, parse_template_file};
+#[cfg(feature = "renderer")]
 pub use pool::{PreparedTemplate, Renderer, RendererConfig, RendererThreads, TemplateSession};
+#[cfg(feature = "renderer")]
 pub use render::{
     EncodedImageFormat, OutputSize, PngCompression, RenderBackend, RenderBackendPreference,
     RenderOptions, RenderOutput, WebpEncodingMode, render_document, render_template,
 };
 pub use template::{Template, TemplateParams};
-pub use text::{FixedTextMeasurer, SkiaTextMeasurer, TextMeasurer};
+#[cfg(feature = "renderer")]
+pub use text::SkiaTextMeasurer;

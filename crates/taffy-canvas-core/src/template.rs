@@ -1,4 +1,8 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use quick_xml::{
     Reader,
@@ -43,6 +47,9 @@ enum TemplateTag {
     View,
     Text,
     Image,
+    Preview,
+    Object,
+    Property,
     Span,
     Link,
     Strong,
@@ -136,8 +143,29 @@ impl Template {
                 message: "root element must be <view>".to_string(),
             });
         }
+        validate_preview_placement(&root, true)?;
 
         Ok(Self { root })
+    }
+
+    pub fn compile_file(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let source = fs::read_to_string(path).map_err(|error| {
+            TaffyCanvasError::Io(format!(
+                "failed to read template `{}`: {error}",
+                path.display()
+            ))
+        })?;
+        Self::compile(&source)
+    }
+
+    pub fn compile_relative(
+        base: impl AsRef<Path>,
+        path: impl AsRef<Path>,
+    ) -> Result<(Self, PathBuf)> {
+        let resolved = resolve_relative_path(base.as_ref(), path.as_ref());
+        let template = Self::compile_file(&resolved)?;
+        Ok((template, resolved))
     }
 
     pub fn instantiate(&self, params: &TemplateParams) -> Result<Document> {
@@ -173,6 +201,19 @@ impl Template {
             root,
         })
     }
+}
+
+fn resolve_relative_path(base: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+
+    let base_dir = if base.is_dir() {
+        base
+    } else {
+        base.parent().unwrap_or_else(|| Path::new("."))
+    };
+    base_dir.join(path)
 }
 
 impl TemplateNode {
@@ -239,6 +280,24 @@ impl TemplateNode {
                 })?;
                 NodeKind::Image { src }
             }
+            TemplateTag::Preview => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: "preview".to_string(),
+                    message: "preview nodes are editor metadata and cannot be rendered".to_string(),
+                });
+            }
+            TemplateTag::Object => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: "object".to_string(),
+                    message: "object nodes are only valid inside preview".to_string(),
+                });
+            }
+            TemplateTag::Property => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: "property".to_string(),
+                    message: "property nodes are only valid inside preview".to_string(),
+                });
+            }
             TemplateTag::Span => {
                 return Err(TaffyCanvasError::InvalidNode {
                     node: "span".to_string(),
@@ -275,6 +334,7 @@ impl TemplateNode {
         let children = self
             .children
             .iter()
+            .filter(|child| child.tag.is_render_node())
             .map(|child| child.instantiate(params))
             .collect::<Result<Vec<_>>>()?;
 
@@ -632,6 +692,9 @@ fn apply_semantic_inline_style(tag: TemplateTag, style: &mut StyleSpec) {
         TemplateTag::View
         | TemplateTag::Text
         | TemplateTag::Image
+        | TemplateTag::Preview
+        | TemplateTag::Object
+        | TemplateTag::Property
         | TemplateTag::Span
         | TemplateTag::Link
         | TemplateTag::Break => {}
@@ -652,7 +715,12 @@ fn push_inline_text(node: &mut TemplateNode, decoded: &str) {
                     .push(TemplateInline::Text(CompiledString::compile(decoded)));
             }
         }
-        TemplateTag::View | TemplateTag::Image | TemplateTag::Break => {}
+        TemplateTag::View
+        | TemplateTag::Image
+        | TemplateTag::Preview
+        | TemplateTag::Object
+        | TemplateTag::Property
+        | TemplateTag::Break => {}
         TemplateTag::Strong
         | TemplateTag::Emphasis
         | TemplateTag::Underline
@@ -714,6 +782,25 @@ fn attach_node(
                         .to_string(),
                 });
             }
+            (
+                TemplateTag::Preview | TemplateTag::Object,
+                TemplateTag::Object | TemplateTag::Property,
+            ) => {
+                parent.children.push(node);
+            }
+            (TemplateTag::Preview | TemplateTag::Object, _) => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: tag_name(node.tag).to_string(),
+                    message: "preview/object nodes may only contain object and property children"
+                        .to_string(),
+                });
+            }
+            (TemplateTag::Property, _) => {
+                return Err(TaffyCanvasError::InvalidNode {
+                    node: tag_name(node.tag).to_string(),
+                    message: "property nodes cannot contain children".to_string(),
+                });
+            }
             _ => parent.children.push(node),
         }
     } else if root.is_none() {
@@ -730,6 +817,9 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
         b"view" => TemplateTag::View,
         b"text" => TemplateTag::Text,
         b"image" => TemplateTag::Image,
+        b"preview" => TemplateTag::Preview,
+        b"object" => TemplateTag::Object,
+        b"property" => TemplateTag::Property,
         b"span" => TemplateTag::Span,
         b"a" => TemplateTag::Link,
         b"strong" => TemplateTag::Strong,
@@ -744,7 +834,7 @@ fn parse_node_start(start: &BytesStart<'_>) -> Result<TemplateNode> {
         other => {
             return Err(TaffyCanvasError::InvalidNode {
                 node: String::from_utf8_lossy(other).into_owned(),
-                message: "supported nodes are view, text, image, span, a, strong, em, u, s, strike, sup, sub, small, mark, br".to_string(),
+                message: "supported nodes are view, text, image, preview, object, property, span, a, strong, em, u, s, strike, sup, sub, small, mark, br".to_string(),
             });
         }
     };
@@ -775,11 +865,32 @@ fn parse_attr(attr: Attribute<'_>) -> Result<(String, String)> {
     Ok((key, value))
 }
 
+fn validate_preview_placement(node: &TemplateNode, is_root: bool) -> Result<()> {
+    for child in &node.children {
+        if child.tag == TemplateTag::Preview && !is_root {
+            return Err(TaffyCanvasError::InvalidNode {
+                node: "preview".to_string(),
+                message: "preview nodes are only allowed as direct children of the root view"
+                    .to_string(),
+            });
+        }
+
+        if child.tag.is_render_node() {
+            validate_preview_placement(child, false)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn tag_name(tag: TemplateTag) -> &'static str {
     match tag {
         TemplateTag::View => "view",
         TemplateTag::Text => "text",
         TemplateTag::Image => "image",
+        TemplateTag::Preview => "preview",
+        TemplateTag::Object => "object",
+        TemplateTag::Property => "property",
         TemplateTag::Span => "span",
         TemplateTag::Link => "a",
         TemplateTag::Strong => "strong",
@@ -791,5 +902,11 @@ fn tag_name(tag: TemplateTag) -> &'static str {
         TemplateTag::Small => "small",
         TemplateTag::Mark => "mark",
         TemplateTag::Break => "br",
+    }
+}
+
+impl TemplateTag {
+    fn is_render_node(self) -> bool {
+        matches!(self, Self::View | Self::Text | Self::Image)
     }
 }

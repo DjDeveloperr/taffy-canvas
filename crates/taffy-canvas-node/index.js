@@ -3,10 +3,12 @@
 const { createRequire } = require('node:module')
 const { existsSync, readFileSync } = require('node:fs')
 const path = require('node:path')
+const { fileURLToPath } = require('node:url')
 
 const requireNative = createRequire(__filename)
 const packageVersion = require('./package.json').version
 const loadErrors = []
+const schemaPath = path.join(__dirname, 'schemas', 'taffy-canvas.xsd')
 
 function isFileMusl(sharedObject) {
   return sharedObject.includes('libc.musl-') || sharedObject.includes('ld-musl-')
@@ -160,4 +162,88 @@ function loadBinding() {
   )
 }
 
-module.exports = loadBinding()
+function normalizeBase(from) {
+  if (from == null) {
+    return process.cwd()
+  }
+
+  if (from instanceof URL) {
+    if (from.protocol !== 'file:') {
+      throw new TypeError(`Expected a file URL, got ${from.href}`)
+    }
+    return fileURLToPath(from)
+  }
+
+  if (typeof from !== 'string') {
+    throw new TypeError('Expected `from` to be a path string or file URL')
+  }
+
+  if (from.startsWith('file:')) {
+    return fileURLToPath(from)
+  }
+
+  return from
+}
+
+function resolveTemplatePath(specifier, options) {
+  if (typeof specifier !== 'string' || specifier.length === 0) {
+    throw new TypeError('Template path must be a non-empty string')
+  }
+
+  const normalizedBase = normalizeBase(options && options.from)
+  if (path.isAbsolute(specifier)) {
+    return specifier
+  }
+
+  const root = path.extname(normalizedBase)
+    ? path.dirname(normalizedBase)
+    : normalizedBase
+  return path.resolve(root, specifier)
+}
+
+function createTemplateLoader(from) {
+  const options = { from }
+  return {
+    compileTemplateFile(specifier) {
+      return binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+    },
+    inspectTemplateFileLayoutSync(specifier, params) {
+      const template = binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+      return binding.inspectCompiledLayoutSync(template, params ?? null)
+    },
+    renderTemplateFileSync(specifier, params, renderOptions) {
+      const template = binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+      return binding.renderCompiledSync(template, params ?? null, renderOptions ?? null)
+    },
+    renderTemplateFile(specifier, params, renderOptions) {
+      const template = binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+      return binding.renderCompiled(template, params ?? null, renderOptions ?? null)
+    }
+  }
+}
+
+const binding = loadBinding()
+
+const exportsObject = {
+  ...binding,
+  schemaPath,
+  resolveTemplatePath,
+  createTemplateLoader,
+  compileTemplateFile(specifier, options) {
+    return binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+  },
+  inspectTemplateFileLayoutSync(specifier, params, options) {
+    const template = binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+    return binding.inspectCompiledLayoutSync(template, params ?? null)
+  },
+  renderTemplateFileSync(specifier, params, renderOptions, options) {
+    const template = binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+    return binding.renderCompiledSync(template, params ?? null, renderOptions ?? null)
+  },
+  renderTemplateFile(specifier, params, renderOptions, options) {
+    const template = binding.compileTemplateFile(resolveTemplatePath(specifier, options))
+    return binding.renderCompiled(template, params ?? null, renderOptions ?? null)
+  }
+}
+
+module.exports = exportsObject

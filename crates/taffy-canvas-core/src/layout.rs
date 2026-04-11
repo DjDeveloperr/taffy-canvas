@@ -17,8 +17,7 @@ use crate::{
         LengthValue, Node, NodeKind, PositionKind, RenderedDocument, StyleSpec,
     },
     error::TaffyCanvasError,
-    text::TextMeasurer,
-    text::TextMetrics,
+    measure::{TextMeasurer, TextMetrics},
 };
 
 #[derive(Clone, Debug)]

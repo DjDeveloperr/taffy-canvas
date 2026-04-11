@@ -1,5 +1,11 @@
 /target
 /node_modules
+/.tools
+/packages/taffy-canvas-web/dist
+/packages/taffy-canvas-vscode/web
+/packages/taffy-canvas-vscode/.build
+*.vsix
+tmp-status-*.png
 *.dylib
 *.so
 *.dll

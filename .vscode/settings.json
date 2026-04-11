@@ -1,0 +1,36 @@
+{
+  "files.associations": {
+    "*.taffy.xml": "xml"
+  },
+  "taffyCanvas.preview.params": {
+    "name": "Canvas",
+    "score": 9001,
+    "player": {
+      "name": "Canvas",
+      "rank": 7
+    },
+    "stats": {
+      "hp": 84,
+      "mp": 31,
+      "xp": 1200
+    },
+    "mission": {
+      "name": "North Gate",
+      "zone": "A-12",
+      "threat": "Medium",
+      "eta": "04:32",
+      "squad": "Echo"
+    },
+    "objectives": {
+      "primary": "Secure the relay",
+      "secondary": "Recover the key",
+      "bonus": "Leave no alarms"
+    }
+  },
+  "xml.fileAssociations": [
+    {
+      "pattern": "**/*.taffy.xml",
+      "systemId": "/Users/dj/.vscode/extensions/djdeveloperr.taffy-canvas-preview-0.1.0/schemas/taffy-canvas.xsd"
+    }
+  ]
+}
