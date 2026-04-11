@@ -10,12 +10,64 @@ use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint,
 use taffy_canvas_core::{
     Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, FontSlant, InlineFragment,
     LayoutNodeKind, LineHeightValue, MemoryAssetProvider, RenderBackend, RenderBackendPreference,
-    RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, Template,
-    TemplateParams, TextDecorationStyleKind, TextMeasurer, layout_document, render_template,
+    RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, TaffyCanvasError,
+    Template, TemplateParams, TextDecorationStyleKind, TextMeasurer, layout_document,
+    render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
     MemoryAssetProvider::new(BTreeMap::new())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn render_with_gpu_or_skip(
+    template: &Template,
+    params: &TemplateParams,
+    assets: &dyn ResourceProvider,
+) -> Option<taffy_canvas_core::RenderOutput> {
+    match render_template(
+        template,
+        params,
+        assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Gpu,
+            ..RenderOptions::default()
+        },
+    ) {
+        Ok(output) => Some(output),
+        Err(error) if gpu_backend_is_unavailable(&error) => {
+            eprintln!(
+                "skipping GPU assertion because this runner does not expose a usable GPU context: {error}"
+            );
+            None
+        }
+        Err(error) => panic!("gpu render succeeds: {error}"),
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+fn gpu_backend_is_unavailable(error: &TaffyCanvasError) -> bool {
+    let TaffyCanvasError::Render(message) = error else {
+        return false;
+    };
+
+    [
+        "gpu backend is only implemented on",
+        "metal device unavailable",
+        "metal command queue unavailable",
+        "failed to create metal direct context",
+        "failed to create EGL display",
+        "failed to create Windows GL display",
+        "failed to enumerate GL configs",
+        "no compatible GL config available",
+        "failed to create GL context",
+        "failed to create GL pbuffer surface",
+        "failed to make GL context current",
+        "failed to create GL interface",
+        "failed to create GL direct context",
+    ]
+    .iter()
+    .any(|prefix| message.starts_with(prefix))
 }
 
 #[test]
@@ -1014,16 +1066,10 @@ fn render_gpu_backend_reports_gpu() {
     )
     .expect("template compiles");
 
-    let output = render_template(
-        &template,
-        &TemplateParams::new(),
-        &empty_assets(),
-        RenderOptions {
-            backend: RenderBackendPreference::Gpu,
-            ..RenderOptions::default()
-        },
-    )
-    .expect("gpu render succeeds");
+    let Some(output) = render_with_gpu_or_skip(&template, &TemplateParams::new(), &empty_assets())
+    else {
+        return;
+    };
 
     assert_eq!(output.backend, RenderBackend::Gpu);
 }
@@ -1050,16 +1096,10 @@ fn render_gpu_matches_cpu_for_basic_rect_scene() {
         },
     )
     .expect("cpu render succeeds");
-    let gpu = render_template(
-        &template,
-        &TemplateParams::new(),
-        &empty_assets(),
-        RenderOptions {
-            backend: RenderBackendPreference::Gpu,
-            ..RenderOptions::default()
-        },
-    )
-    .expect("gpu render succeeds");
+    let Some(gpu) = render_with_gpu_or_skip(&template, &TemplateParams::new(), &empty_assets())
+    else {
+        return;
+    };
 
     assert_eq!(gpu.backend, RenderBackend::Gpu);
     assert_eq!(cpu.pixels_rgba, gpu.pixels_rgba);
