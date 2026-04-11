@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 use std::cell::RefCell;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -5,12 +6,14 @@ use std::num::NonZeroU32;
 use std::ops::Range;
 
 use skia_safe::{
-    AlphaType, Color as SkColor, ColorType, EncodedImageFormat, ImageInfo, Paint, PaintStyle,
-    PathBuilder, PathEffect, RRect, Rect, SamplingOptions,
+    AlphaType, Color as SkColor, ColorType, ImageInfo, Paint, PaintStyle, PathBuilder, PathEffect,
+    RRect, Rect, SamplingOptions,
     paint::Cap,
-    surfaces,
+    png_encoder, surfaces,
     textlayout::{RectHeightStyle, RectWidthStyle},
+    webp_encoder,
 };
+use webp::{Encoder as LibWebpEncoder, WebPConfig};
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use glutin::{
@@ -43,10 +46,16 @@ use crate::{
     text::{ParagraphScene, SkiaTextMeasurer, has_decoration},
 };
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct RenderOptions {
     pub scale: f32,
     pub backend: RenderBackendPreference,
+    pub output_format: EncodedImageFormat,
+    pub output_size: OutputSize,
+    pub webp_mode: WebpEncodingMode,
+    pub webp_quality: f32,
+    pub include_encoded: bool,
+    pub include_rgba: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -61,6 +70,50 @@ pub enum RenderBackendPreference {
 pub enum RenderBackend {
     Cpu,
     Gpu,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EncodedImageFormat {
+    #[default]
+    Png,
+    Webp,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OutputSize {
+    #[default]
+    Fast,
+    Balanced,
+    Small,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WebpEncodingMode {
+    #[default]
+    Lossless,
+    Lossy,
+}
+
+pub type PngCompression = OutputSize;
+
+impl Default for RenderOptions {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            backend: RenderBackendPreference::Auto,
+            output_format: EncodedImageFormat::Png,
+            output_size: OutputSize::Fast,
+            webp_mode: WebpEncodingMode::Lossless,
+            webp_quality: 85.0,
+            include_encoded: true,
+            include_rgba: true,
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct CpuRenderScratch {
+    pixels_rgba: Vec<u8>,
 }
 
 #[cfg(target_os = "macos")]
@@ -78,7 +131,8 @@ pub struct RenderOutput {
     pub width: u32,
     pub height: u32,
     pub backend: RenderBackend,
-    pub png_bytes: Vec<u8>,
+    pub encoded_format: Option<EncodedImageFormat>,
+    pub encoded_bytes: Vec<u8>,
     pub pixels_rgba: Vec<u8>,
     pub layout: crate::document::RenderedDocument,
 }
@@ -89,27 +143,108 @@ pub fn render_document(
     assets: &dyn ResourceProvider,
     options: RenderOptions,
 ) -> Result<RenderOutput> {
+    render_document_with_scratch(document, measurer, assets, options, None)
+}
+
+pub(crate) fn render_document_with_scratch(
+    document: &crate::document::Document,
+    measurer: &SkiaTextMeasurer,
+    assets: &dyn ResourceProvider,
+    options: RenderOptions,
+    cpu_scratch: Option<&mut CpuRenderScratch>,
+) -> Result<RenderOutput> {
     let layout = layout_document(document, measurer)?;
     match options.backend {
-        RenderBackendPreference::Cpu => render_layout_cpu(&layout, measurer, assets),
-        RenderBackendPreference::Gpu => render_layout_gpu(&layout, measurer, assets),
-        RenderBackendPreference::Auto => render_layout_gpu(&layout, measurer, assets)
-            .or_else(|_| render_layout_cpu(&layout, measurer, assets)),
+        RenderBackendPreference::Cpu => {
+            render_layout_cpu(layout, measurer, assets, options, cpu_scratch)
+        }
+        RenderBackendPreference::Gpu => render_layout_gpu(&layout, measurer, assets, options),
+        RenderBackendPreference::Auto => {
+            match render_layout_gpu(&layout, measurer, assets, options) {
+                Ok(output) => Ok(output),
+                Err(_) => render_layout_cpu(&layout, measurer, assets, options, cpu_scratch),
+            }
+        }
     }
 }
 
 fn render_layout_cpu(
-    layout: &crate::document::RenderedDocument,
+    layout: impl std::borrow::Borrow<crate::document::RenderedDocument>,
     measurer: &SkiaTextMeasurer,
     assets: &dyn ResourceProvider,
+    options: RenderOptions,
+    cpu_scratch: Option<&mut CpuRenderScratch>,
 ) -> Result<RenderOutput> {
-    let mut surface = surfaces::raster_n32_premul((layout.width as i32, layout.height as i32))
-        .ok_or_else(|| TaffyCanvasError::Render("failed to create raster surface".to_string()))?;
-    let canvas = surface.canvas();
-    canvas.clear(SkColor::TRANSPARENT);
+    let layout = layout.borrow();
+    let info = ImageInfo::new(
+        (layout.width as i32, layout.height as i32),
+        ColorType::RGBA8888,
+        AlphaType::Premul,
+        None,
+    );
+    let row_bytes = info.min_row_bytes();
+    let required_len = info.compute_byte_size(row_bytes);
+    match cpu_scratch {
+        Some(scratch) => {
+            if scratch.pixels_rgba.len() < required_len {
+                scratch.pixels_rgba.resize(required_len, 0);
+            }
+            let encoded_bytes = {
+                let pixels_rgba = &mut scratch.pixels_rgba[..required_len];
+                let mut surface = surfaces::wrap_pixels(&info, pixels_rgba, row_bytes, None)
+                    .ok_or_else(|| {
+                        TaffyCanvasError::Render("failed to create raster surface".to_string())
+                    })?;
+                let canvas = surface.canvas();
+                canvas.clear(SkColor::TRANSPARENT);
 
-    draw_node(canvas, &layout.root, measurer, assets)?;
-    finish_surface(&mut surface, layout.clone(), RenderBackend::Cpu)
+                draw_node(canvas, &layout.root, measurer, assets)?;
+                encode_surface(&mut surface, options)?
+            };
+
+            Ok(RenderOutput {
+                width: layout.width,
+                height: layout.height,
+                backend: RenderBackend::Cpu,
+                encoded_format: options.include_encoded.then_some(options.output_format),
+                encoded_bytes,
+                pixels_rgba: if options.include_rgba {
+                    scratch.pixels_rgba[..required_len].to_vec()
+                } else {
+                    Vec::new()
+                },
+                layout: layout.clone(),
+            })
+        }
+        None => {
+            let mut pixels_rgba = vec![0u8; required_len];
+            let encoded_bytes = {
+                let mut surface = surfaces::wrap_pixels(&info, &mut pixels_rgba, row_bytes, None)
+                    .ok_or_else(|| {
+                    TaffyCanvasError::Render("failed to create raster surface".to_string())
+                })?;
+                let canvas = surface.canvas();
+                canvas.clear(SkColor::TRANSPARENT);
+
+                draw_node(canvas, &layout.root, measurer, assets)?;
+                encode_surface(&mut surface, options)?
+            };
+
+            Ok(RenderOutput {
+                width: layout.width,
+                height: layout.height,
+                backend: RenderBackend::Cpu,
+                encoded_format: options.include_encoded.then_some(options.output_format),
+                encoded_bytes,
+                pixels_rgba: if options.include_rgba {
+                    pixels_rgba
+                } else {
+                    Vec::new()
+                },
+                layout: layout.clone(),
+            })
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -117,6 +252,7 @@ fn render_layout_gpu(
     layout: &crate::document::RenderedDocument,
     measurer: &SkiaTextMeasurer,
     assets: &dyn ResourceProvider,
+    options: RenderOptions,
 ) -> Result<RenderOutput> {
     METAL_CONTEXT.with(|slot| -> Result<RenderOutput> {
         let mut slot = slot.borrow_mut();
@@ -148,7 +284,12 @@ fn render_layout_gpu(
         draw_node(canvas, &layout.root, measurer, assets)?;
         context.direct_context.flush_and_submit();
 
-        finish_surface_gpu(&mut surface, layout.clone(), &mut context.direct_context)
+        finish_surface_gpu(
+            &mut surface,
+            layout.clone(),
+            &mut context.direct_context,
+            options,
+        )
     })
 }
 
@@ -157,6 +298,7 @@ fn render_layout_gpu(
     layout: &crate::document::RenderedDocument,
     measurer: &SkiaTextMeasurer,
     assets: &dyn ResourceProvider,
+    options: RenderOptions,
 ) -> Result<RenderOutput> {
     GL_CONTEXT.with(|slot| -> Result<RenderOutput> {
         let mut slot = slot.borrow_mut();
@@ -188,7 +330,12 @@ fn render_layout_gpu(
         draw_node(canvas, &layout.root, measurer, assets)?;
         context.direct_context.flush_and_submit();
 
-        finish_surface_gpu(&mut surface, layout.clone(), &mut context.direct_context)
+        finish_surface_gpu(
+            &mut surface,
+            layout.clone(),
+            &mut context.direct_context,
+            options,
+        )
     })
 }
 
@@ -197,46 +344,59 @@ fn render_layout_gpu(
     _layout: &crate::document::RenderedDocument,
     _measurer: &SkiaTextMeasurer,
     _assets: &dyn ResourceProvider,
+    _options: RenderOptions,
 ) -> Result<RenderOutput> {
     Err(TaffyCanvasError::Render(
         "gpu backend is only implemented on macOS right now".to_string(),
     ))
 }
 
-fn finish_surface(
-    surface: &mut skia_safe::Surface,
-    layout: crate::document::RenderedDocument,
-    backend: RenderBackend,
-) -> Result<RenderOutput> {
-    let image = surface.image_snapshot();
-
-    let info = ImageInfo::new(
-        (layout.width as i32, layout.height as i32),
-        ColorType::RGBA8888,
-        AlphaType::Premul,
-        None,
-    );
-    let mut pixels_rgba = vec![0u8; layout.width as usize * layout.height as usize * 4];
-    if !surface.read_pixels(&info, &mut pixels_rgba, layout.width as usize * 4, (0, 0)) {
-        return Err(TaffyCanvasError::Render(
-            "failed to read pixels".to_string(),
-        ));
+fn encode_surface(surface: &mut skia_safe::Surface, options: RenderOptions) -> Result<Vec<u8>> {
+    if !options.include_encoded {
+        return Ok(Vec::new());
     }
 
-    let png_bytes = image
-        .encode(None, EncodedImageFormat::PNG, None)
-        .ok_or_else(|| TaffyCanvasError::Render("failed to encode png".to_string()))?
-        .as_bytes()
-        .to_vec();
+    let pixmap = surface.peek_pixels().ok_or_else(|| {
+        TaffyCanvasError::Render("failed to access raster pixels for image encode".to_string())
+    })?;
 
-    Ok(RenderOutput {
-        width: layout.width,
-        height: layout.height,
-        backend,
-        png_bytes,
-        pixels_rgba,
-        layout,
-    })
+    match options.output_format {
+        EncodedImageFormat::Png => {
+            let mut encoded_bytes = Vec::new();
+            if !png_encoder::encode(
+                &pixmap,
+                &mut encoded_bytes,
+                &png_encode_options(options.output_size),
+            ) {
+                return Err(TaffyCanvasError::Render("failed to encode png".to_string()));
+            }
+            Ok(encoded_bytes)
+        }
+        EncodedImageFormat::Webp => match options.webp_mode {
+            WebpEncodingMode::Lossless => {
+                let mut encoded_bytes = Vec::new();
+                if !webp_encoder::encode(
+                    &pixmap,
+                    &mut encoded_bytes,
+                    &webp_encode_options(options.output_size),
+                ) {
+                    return Err(TaffyCanvasError::Render(
+                        "failed to encode webp".to_string(),
+                    ));
+                }
+                Ok(encoded_bytes)
+            }
+            WebpEncodingMode::Lossy => {
+                let bytes = pixmap_rgba_bytes(&pixmap)?;
+                encode_webp_lossy_rgba(
+                    bytes.as_ref(),
+                    pixmap.width() as u32,
+                    pixmap.height() as u32,
+                    options,
+                )
+            }
+        },
+    }
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
@@ -244,6 +404,7 @@ fn finish_surface_gpu(
     surface: &mut skia_safe::Surface,
     layout: crate::document::RenderedDocument,
     context: &mut gpu::DirectContext,
+    options: RenderOptions,
 ) -> Result<RenderOutput> {
     let image = surface.image_snapshot();
 
@@ -253,25 +414,60 @@ fn finish_surface_gpu(
         AlphaType::Premul,
         None,
     );
-    let mut pixels_rgba = vec![0u8; layout.width as usize * layout.height as usize * 4];
-    if !surface.read_pixels(&info, &mut pixels_rgba, layout.width as usize * 4, (0, 0)) {
-        return Err(TaffyCanvasError::Render(
-            "failed to read pixels".to_string(),
-        ));
-    }
+    let requires_lossy_webp_rgba = options.include_encoded
+        && options.output_format == EncodedImageFormat::Webp
+        && options.webp_mode == WebpEncodingMode::Lossy;
+    let pixels_rgba = if options.include_rgba || requires_lossy_webp_rgba {
+        let mut pixels_rgba = vec![0u8; layout.width as usize * layout.height as usize * 4];
+        if !surface.read_pixels(&info, &mut pixels_rgba, layout.width as usize * 4, (0, 0)) {
+            return Err(TaffyCanvasError::Render(
+                "failed to read pixels".to_string(),
+            ));
+        }
+        pixels_rgba
+    } else {
+        Vec::new()
+    };
 
-    let png_bytes = image
-        .encode(Some(context), EncodedImageFormat::PNG, None)
-        .ok_or_else(|| TaffyCanvasError::Render("failed to encode png".to_string()))?
-        .as_bytes()
-        .to_vec();
+    let encoded_bytes = if options.include_encoded {
+        match options.output_format {
+            EncodedImageFormat::Png => png_encoder::encode_image(
+                Some(context),
+                &image,
+                &png_encode_options(options.output_size),
+            )
+            .ok_or_else(|| TaffyCanvasError::Render("failed to encode png".to_string()))?
+            .as_bytes()
+            .to_vec(),
+            EncodedImageFormat::Webp => match options.webp_mode {
+                WebpEncodingMode::Lossless => webp_encoder::encode_image(
+                    Some(context),
+                    &image,
+                    &webp_encode_options(options.output_size),
+                )
+                .ok_or_else(|| TaffyCanvasError::Render("failed to encode webp".to_string()))?
+                .as_bytes()
+                .to_vec(),
+                WebpEncodingMode::Lossy => {
+                    encode_webp_lossy_rgba(&pixels_rgba, layout.width, layout.height, options)?
+                }
+            },
+        }
+    } else {
+        Vec::new()
+    };
 
     Ok(RenderOutput {
         width: layout.width,
         height: layout.height,
         backend: RenderBackend::Gpu,
-        png_bytes,
-        pixels_rgba,
+        encoded_format: options.include_encoded.then_some(options.output_format),
+        encoded_bytes,
+        pixels_rgba: if options.include_rgba {
+            pixels_rgba
+        } else {
+            Vec::new()
+        },
         layout,
     })
 }
@@ -466,9 +662,8 @@ fn draw_node(
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
     draw_box(canvas, node);
-    let should_clip = overflow_clips(node.style.overflow_x)
-        || overflow_clips(node.style.overflow_y)
-        || matches!(node.kind, LayoutNodeKind::Image { .. }) && node.style.border_radius > 0.0;
+    let should_clip =
+        overflow_clips(node.style.overflow_x) || overflow_clips(node.style.overflow_y);
     if should_clip {
         canvas.save();
         clip_node(canvas, node);
@@ -574,8 +769,8 @@ fn clip_node(canvas: &skia_safe::Canvas, node: &LayoutNode) {
         node.layout.height,
     );
     let should_radius_clip = node.style.border_radius > 0.0
-        && (matches!(node.kind, LayoutNodeKind::Image { .. })
-            || (overflow_clips(node.style.overflow_x) && overflow_clips(node.style.overflow_y)));
+        && overflow_clips(node.style.overflow_x)
+        && overflow_clips(node.style.overflow_y);
 
     if should_radius_clip {
         let rrect = RRect::new_rect_xy(
@@ -597,17 +792,119 @@ fn draw_image_rect(
     rect: Rect,
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
+    let target_width = rect.width().round().max(1.0) as u32;
+    let target_height = rect.height().round().max(1.0) as u32;
     let image = assets.load_prepared_image(&PreparedImageRequest {
         key: src,
-        width: rect.width().round().max(1.0) as u32,
-        height: rect.height().round().max(1.0) as u32,
+        width: target_width,
+        height: target_height,
         fit: style.image_fit,
+        radius: style.border_radius,
     })?;
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-    let sampling = SamplingOptions::default();
-    canvas.draw_image_rect_with_sampling_options(image, None, rect, sampling, &paint);
+    if rect.width() == image.width() as f32 && rect.height() == image.height() as f32 {
+        canvas.draw_image(&image, (rect.left, rect.top), None);
+    } else {
+        canvas.draw_image_rect_with_sampling_options(
+            &image,
+            None,
+            rect,
+            SamplingOptions::default(),
+            &Paint::default(),
+        );
+    }
     Ok(())
+}
+
+fn png_encode_options(compression: OutputSize) -> png_encoder::Options {
+    let mut options = png_encoder::Options::default();
+    match compression {
+        OutputSize::Fast => {
+            options.filter_flags = png_encoder::FilterFlag::SUB;
+            options.z_lib_level = 2;
+        }
+        OutputSize::Balanced => {
+            options.filter_flags = png_encoder::FilterFlag::SUB;
+            options.z_lib_level = 4;
+        }
+        OutputSize::Small => {
+            options.filter_flags = png_encoder::FilterFlag::ALL;
+            options.z_lib_level = 6;
+        }
+    }
+    options
+}
+
+fn webp_encode_options(size: OutputSize) -> webp_encoder::Options {
+    let mut options = webp_encoder::Options::default();
+    options.compression = webp_encoder::Compression::Lossless;
+    options.quality = match size {
+        OutputSize::Fast => 20.0,
+        OutputSize::Balanced => 60.0,
+        OutputSize::Small => 90.0,
+    };
+    options
+}
+
+fn encode_webp_lossy_rgba(
+    pixels_rgba: &[u8],
+    width: u32,
+    height: u32,
+    options: RenderOptions,
+) -> Result<Vec<u8>> {
+    let encoder = LibWebpEncoder::from_rgba(pixels_rgba, width, height);
+    let config = webp_lossy_config(options.output_size, options.webp_quality);
+    encoder
+        .encode_advanced(&config)
+        .map(|encoded| encoded.to_vec())
+        .map_err(|error| {
+            TaffyCanvasError::Render(format!("failed to encode lossy webp: {error:?}"))
+        })
+}
+
+fn webp_lossy_config(output_size: OutputSize, quality: f32) -> WebPConfig {
+    let mut config = WebPConfig::new().expect("webp config");
+    config.lossless = 0;
+    config.quality = quality.clamp(0.0, 100.0);
+    config.method = match output_size {
+        OutputSize::Fast => 0,
+        OutputSize::Balanced => 3,
+        OutputSize::Small => 6,
+    };
+    config.thread_level = 1;
+    config.autofilter = if matches!(output_size, OutputSize::Fast) {
+        0
+    } else {
+        1
+    };
+    config.alpha_compression = 1;
+    config.alpha_filtering = 1;
+    config.alpha_quality = 100;
+    config.use_sharp_yuv = if matches!(output_size, OutputSize::Small) {
+        1
+    } else {
+        0
+    };
+    config
+}
+
+fn pixmap_rgba_bytes<'a>(pixmap: &'a skia_safe::Pixmap) -> Result<Cow<'a, [u8]>> {
+    let expected_row_bytes = pixmap.width() as usize * 4;
+    let bytes = pixmap.bytes().ok_or_else(|| {
+        TaffyCanvasError::Render("failed to access raster pixels for lossy webp encode".to_string())
+    })?;
+    if pixmap.row_bytes() == expected_row_bytes {
+        Ok(Cow::Borrowed(bytes))
+    } else {
+        let mut tight = vec![0u8; pixmap.height() as usize * expected_row_bytes];
+        for row in 0..pixmap.height() as usize {
+            let source_start = row * pixmap.row_bytes();
+            let source_end = source_start + expected_row_bytes;
+            let target_start = row * expected_row_bytes;
+            let target_end = target_start + expected_row_bytes;
+            tight[target_start..target_end].copy_from_slice(&bytes[source_start..source_end]);
+        }
+        Ok(Cow::Owned(tight))
+    }
 }
 
 fn draw_text_decorations(canvas: &skia_safe::Canvas, node: &LayoutNode, scene: &ParagraphScene) {

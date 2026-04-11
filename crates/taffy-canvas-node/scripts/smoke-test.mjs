@@ -20,7 +20,7 @@ const png = binding.renderXmlSync(
 assert.ok(Buffer.isBuffer(png))
 assert.ok(png.length > 0)
 
-const renderer = binding.createRenderer(2)
+const renderer = binding.createRenderer({ minThreads: 1, maxThreads: 2, idleMs: 50 })
 const resources = binding.createResources()
 const template = binding.compileTemplate(
   '<view width="8" height="8" background="#102030"><text color="#ffffff">Hi</text></view>'
@@ -59,5 +59,41 @@ const session = binding.createTemplateSession(nestedPrepared, {
 const sessionPng = binding.renderTemplateSessionSync(session, { stats: { hp: 99 } }, 'cpu')
 assert.ok(Buffer.isBuffer(sessionPng))
 assert.ok(sessionPng.length > 0)
+
+const smallPng = binding.renderTemplateSessionSync(
+  session,
+  { stats: { hp: 99 } },
+  { backend: 'cpu', outputSize: 'small' }
+)
+assert.ok(Buffer.isBuffer(smallPng))
+assert.ok(smallPng.length > 0)
+assert.ok(smallPng.length <= sessionPng.length)
+
+const webp = binding.renderTemplateSessionSync(
+  session,
+  { stats: { hp: 99 } },
+  { backend: 'cpu', outputFormat: 'webp', outputSize: 'balanced' }
+)
+assert.ok(Buffer.isBuffer(webp))
+assert.ok(webp.length > 12)
+assert.equal(webp.subarray(0, 4).toString('ascii'), 'RIFF')
+assert.equal(webp.subarray(8, 12).toString('ascii'), 'WEBP')
+
+const lossyWebp = binding.renderTemplateSessionSync(
+  session,
+  { stats: { hp: 99 } },
+  {
+    backend: 'cpu',
+    outputFormat: 'webp',
+    outputSize: 'fast',
+    webpMode: 'lossy',
+    webpQuality: 85
+  }
+)
+assert.ok(Buffer.isBuffer(lossyWebp))
+assert.ok(lossyWebp.length > 12)
+assert.equal(lossyWebp.subarray(0, 4).toString('ascii'), 'RIFF')
+assert.equal(lossyWebp.subarray(8, 12).toString('ascii'), 'WEBP')
+assert.notEqual(lossyWebp.length, webp.length)
 
 console.log('Node smoke test passed')

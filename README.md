@@ -37,6 +37,7 @@ The goal is to describe an image once, bind data into it quickly, and render it 
   - backgrounds, borders, border radius
   - image fit modes: `fill`, `contain`, `cover`
   - overflow clipping with `visible`, `hidden`, `clip`, `overflow-x`, and `overflow-y`
+  - PNG output-size tradeoffs: `fast`, `balanced`, `small`
 - Performance-oriented runtime:
   - reusable renderer handles
   - reusable resource handles
@@ -85,8 +86,8 @@ Rules:
 use std::collections::BTreeMap;
 
 use taffy_canvas_core::{
-    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Renderer, Template,
-    TemplateParams,
+    EncodedImageFormat, MemoryAssetProvider, OutputSize, RenderBackendPreference, RenderOptions,
+    Renderer, Template, TemplateParams, WebpEncodingMode,
 };
 
 let template = Template::compile(
@@ -108,11 +109,15 @@ let output = renderer.render(
     &resources,
     RenderOptions {
         backend: RenderBackendPreference::Auto,
+        output_format: EncodedImageFormat::Webp,
+        output_size: OutputSize::Fast,
+        webp_mode: WebpEncodingMode::Lossy,
+        webp_quality: 85.0,
         ..RenderOptions::default()
     },
 )?;
 
-std::fs::write("out.png", output.png_bytes)?;
+std::fs::write("out.webp", output.encoded_bytes)?;
 # Ok::<(), taffy_canvas_core::TaffyCanvasError>(())
 ```
 
@@ -145,12 +150,14 @@ let output = session.render(&frame, RenderOptions::default())?;
 ```js
 const {
   createResourcesFromManifest,
+  createRenderer,
   compileTemplate,
-  prepareTemplate,
+  prepareTemplateWithRenderer,
   createTemplateSession,
   renderTemplateSession,
 } = require("taffy-canvas");
 
+const renderer = createRenderer({ minThreads: 2, maxThreads: 8, idleMs: 5000 });
 const resources = createResourcesFromManifest("./assets/resources.json");
 
 const template = compileTemplate(`
@@ -160,17 +167,19 @@ const template = compileTemplate(`
   </view>
 `);
 
-const prepared = prepareTemplate(resources, template);
+const prepared = prepareTemplateWithRenderer(renderer, resources, template);
 const session = createTemplateSession(prepared, {
   player: { name: "Canvas" },
   stats: { hp: 42 },
 });
 
-const png = await renderTemplateSession(
-  session,
-  { stats: { hp: 99 } },
-  "auto"
-);
+const image = await renderTemplateSession(session, { stats: { hp: 99 } }, {
+  backend: 'auto',
+  outputFormat: 'webp',
+  outputSize: 'fast',
+  webpMode: 'lossy',
+  webpQuality: 85
+});
 ```
 
 The JS binding accepts nested objects and arrays and flattens them into dotted template keys automatically.
@@ -195,6 +204,14 @@ npm run smoke
 ```
 
 The repository also provides a root npm workspace in [`package.json`](/Users/dj/Developer/taffy-canvas/package.json) for Node-side development convenience.
+
+## AI Usage
+
+This project is primarily developed using Codex, GPT 5.4 model. For contributors, I encourage the use of AI but please
+disclose the usage.
+
+For those who are interested, I've published a
+[trace of the first thread of this project](https://traces.com/s/jn7fvrqm6ph63f5j117p7ngrrn84mrwy).
 
 ## License
 

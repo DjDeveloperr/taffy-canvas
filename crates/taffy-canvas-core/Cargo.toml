@@ -20,6 +20,7 @@ skia-safe.workspace = true
 smallvec.workspace = true
 taffy.workspace = true
 thiserror.workspace = true
+webp = "0.3.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"

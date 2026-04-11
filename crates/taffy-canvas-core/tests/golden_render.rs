@@ -131,7 +131,7 @@ fn assert_render_matches_golden(name: &str, xml: &str, assets: MemoryAssetProvid
         fs::create_dir_all(&artifact_dir).expect("artifact dir created");
         let actual_png = artifact_dir.join(format!("{name}.png"));
         let actual_json = artifact_dir.join(format!("{name}.json"));
-        fs::write(&actual_png, &output.png_bytes).expect("actual png written");
+        fs::write(&actual_png, &output.encoded_bytes).expect("actual image written");
         fs::write(
             &actual_json,
             serde_json::to_vec_pretty(&GoldenFixture {

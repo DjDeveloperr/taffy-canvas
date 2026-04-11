@@ -34,6 +34,7 @@ Reusable render executor backed by a Rayon thread pool.
 Methods:
 
 - `Renderer::new(threads: usize) -> Result<Renderer>`
+- `Renderer::with_config(config: RendererConfig) -> Result<Renderer>`
 - `Renderer::render(&self, template: &Template, params: &TemplateParams, assets: &dyn ResourceProvider, options: RenderOptions) -> Result<RenderOutput>`
 - `Renderer::prepare<R>(&self, template: Template, resources: R) -> PreparedTemplate<R>`
 - `Renderer::session<R>(&self, template: Template, resources: R, base_params: TemplateParams) -> TemplateSession<R>`
@@ -42,6 +43,19 @@ Traits:
 
 - `Clone`
 - `Default`
+
+### `RendererConfig`
+
+Fields:
+
+- `threads: RendererThreads`
+
+### `RendererThreads`
+
+Values:
+
+- `Fixed(usize)`
+- `Auto { min: usize, max: usize, idle_timeout: Duration }`
 
 ### `PreparedTemplate<R>`
 
@@ -148,6 +162,7 @@ Fields:
 - `width: u32`
 - `height: u32`
 - `fit: ImageFit`
+- `radius: f32`
 
 ## Rendering
 
@@ -156,6 +171,44 @@ Fields:
 Fields:
 
 - `backend: RenderBackendPreference`
+- `output_format: EncodedImageFormat`
+- `output_size: OutputSize`
+- `webp_mode: WebpEncodingMode`
+- `webp_quality: f32`
+- `include_encoded: bool`
+- `include_rgba: bool`
+
+`webp_quality` is used when `output_format` is `Webp` and `webp_mode` is `Lossy`. Valid range is `0.0..=100.0`.
+
+### `EncodedImageFormat`
+
+Encoded image container for returned `encoded_bytes`.
+
+Values:
+
+- `Png`
+- `Webp`
+
+### `OutputSize`
+
+Encoding effort tradeoff for returned `encoded_bytes`.
+
+For PNG this trades CPU time for file size.
+For lossless WebP this trades CPU effort for file size.
+For lossy WebP this controls encoder effort, while `webp_quality` controls visual quality.
+
+Values:
+
+- `Fast`
+- `Balanced`
+- `Small`
+
+### `WebpEncodingMode`
+
+Values:
+
+- `Lossless`
+- `Lossy`
 
 ### `RenderBackendPreference`
 
@@ -181,7 +234,8 @@ Fields:
 - `width: u32`
 - `height: u32`
 - `backend: RenderBackend`
-- `png_bytes: Vec<u8>`
+- `encoded_format: Option<EncodedImageFormat>`
+- `encoded_bytes: Vec<u8>`
 - `pixels_rgba: Vec<u8>`
 - `layout: RenderedDocument`
 

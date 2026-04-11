@@ -8,10 +8,11 @@ use std::{
 
 use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    Color, FileSystemResourceProvider, FixedTextMeasurer, FontAsset, FontSlant, InlineFragment,
-    LayoutNodeKind, LineHeightValue, MemoryAssetProvider, RenderBackend, RenderBackendPreference,
-    RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, TaffyCanvasError,
-    Template, TemplateParams, TextDecorationStyleKind, TextMeasurer, layout_document,
+    Color, EncodedImageFormat as RenderEncodedImageFormat, FileSystemResourceProvider,
+    FixedTextMeasurer, FontAsset, FontSlant, InlineFragment, LayoutNodeKind, LineHeightValue,
+    MemoryAssetProvider, PngCompression, RenderBackend, RenderBackendPreference, RenderOptions,
+    Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, TaffyCanvasError, Template,
+    TemplateParams, TextDecorationStyleKind, TextMeasurer, WebpEncodingMode, layout_document,
     render_template,
 };
 
@@ -1340,7 +1341,11 @@ fn renderer_reuses_template_for_parallel_renders() {
     });
 
     assert_eq!(outputs.len(), 4);
-    assert!(outputs.iter().all(|output| !output.png_bytes.is_empty()));
+    assert!(
+        outputs
+            .iter()
+            .all(|output| !output.encoded_bytes.is_empty())
+    );
     assert!(outputs.iter().all(|output| matches!(
         output.layout.root.children[0].kind,
         LayoutNodeKind::Text { .. }
@@ -1368,7 +1373,7 @@ fn prepared_template_reuses_bound_resources_and_renderer() {
 
     assert_eq!(output.width, 32);
     assert_eq!(output.height, 16);
-    assert!(!output.png_bytes.is_empty());
+    assert!(!output.encoded_bytes.is_empty());
 }
 
 #[test]
@@ -1398,7 +1403,7 @@ fn template_session_merges_base_params_and_overrides() {
 
     assert_eq!(output.width, 48);
     assert_eq!(output.height, 20);
-    assert!(!output.png_bytes.is_empty());
+    assert!(!output.encoded_bytes.is_empty());
 }
 
 #[test]
@@ -1726,6 +1731,150 @@ fn render_outputs_expected_pixels_for_image_assets() {
 }
 
 #[test]
+fn render_output_size_modes_trade_output_size_without_changing_pixels() {
+    let template = Template::compile(
+        r##"
+        <view width="64" height="32" background="#102030">
+          <image src="swatch" width="48" height="24" fit="cover" radius="6" position="absolute" left="8" top="4" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let fast = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            output_size: PngCompression::Fast,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("fast render succeeds");
+    let small = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            output_size: PngCompression::Small,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("small render succeeds");
+
+    assert_eq!(fast.pixels_rgba, small.pixels_rgba);
+    assert!(small.encoded_bytes.len() < fast.encoded_bytes.len());
+}
+
+#[test]
+fn render_supports_webp_encoding_and_raw_rgba_only() {
+    let template = Template::compile(
+        r##"
+        <view width="64" height="32" background="#102030">
+          <image src="swatch" width="48" height="24" fit="cover" radius="6" position="absolute" left="8" top="4" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let webp = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            output_format: RenderEncodedImageFormat::Webp,
+            output_size: PngCompression::Balanced,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("webp render succeeds");
+    assert_eq!(webp.encoded_format, Some(RenderEncodedImageFormat::Webp));
+    assert!(webp.encoded_bytes.starts_with(b"RIFF"));
+    assert_eq!(&webp.encoded_bytes[8..12], b"WEBP");
+
+    let raw = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            include_encoded: false,
+            include_rgba: true,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("raw render succeeds");
+    assert_eq!(raw.encoded_format, None);
+    assert!(raw.encoded_bytes.is_empty());
+    assert_eq!(
+        raw.pixels_rgba.len(),
+        raw.width as usize * raw.height as usize * 4
+    );
+}
+
+#[test]
+fn render_supports_lossy_webp_with_explicit_quality() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="180" background="#101820">
+          <image src="swatch" width="112" height="112" fit="cover" radius="18" position="absolute" left="16" top="16" />
+          <image src="swatch" width="112" height="112" fit="cover" radius="18" position="absolute" left="144" top="16" />
+          <text left="24" top="138" position="absolute" color="#ffffff" font-size="24">Battle Scene</text>
+          <text left="24" top="164" position="absolute" color="#9fb4d1" font-size="14">Lossy WebP regression</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let lossless = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            output_format: RenderEncodedImageFormat::Webp,
+            output_size: PngCompression::Balanced,
+            webp_mode: WebpEncodingMode::Lossless,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("lossless webp render succeeds");
+
+    let lossy = render_template(
+        &template,
+        &TemplateParams::new(),
+        &assets,
+        RenderOptions {
+            backend: RenderBackendPreference::Cpu,
+            output_format: RenderEncodedImageFormat::Webp,
+            output_size: PngCompression::Fast,
+            webp_mode: WebpEncodingMode::Lossy,
+            webp_quality: 85.0,
+            ..RenderOptions::default()
+        },
+    )
+    .expect("lossy webp render succeeds");
+
+    assert_eq!(lossy.encoded_format, Some(RenderEncodedImageFormat::Webp));
+    assert!(lossy.encoded_bytes.starts_with(b"RIFF"));
+    assert_eq!(&lossy.encoded_bytes[8..12], b"WEBP");
+    assert_eq!(lossless.pixels_rgba, lossy.pixels_rgba);
+    assert!(lossy.encoded_bytes.len() < lossless.encoded_bytes.len());
+}
+
+#[test]
 fn render_outputs_expected_pixels_for_inline_image_fragments() {
     let template = Template::compile(
         r##"
@@ -1783,6 +1932,7 @@ fn memory_asset_provider_reuses_prepared_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
         },
     )
     .expect("first prepared image");
@@ -1793,12 +1943,57 @@ fn memory_asset_provider_reuses_prepared_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
         },
     )
     .expect("second prepared image");
 
     assert_eq!(assets.prepared_image_count(), 1);
     assert_eq!(first.unique_id(), second.unique_id());
+}
+
+#[test]
+fn memory_asset_provider_distinguishes_prepared_images_by_radius() {
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let rounded = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 3.0,
+        },
+    )
+    .expect("rounded prepared image");
+    let rounded_again = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 3.0,
+        },
+    )
+    .expect("rounded prepared image reused");
+    let square = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
+        },
+    )
+    .expect("square prepared image");
+
+    assert_eq!(assets.prepared_image_count(), 2);
+    assert_eq!(rounded.unique_id(), rounded_again.unique_id());
+    assert_ne!(rounded.unique_id(), square.unique_id());
 }
 
 #[test]
@@ -1870,6 +2065,7 @@ fn filesystem_resource_provider_loads_assets_and_reuses_decoded_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Contain,
+            radius: 0.0,
         },
     )
     .expect("prepared image");
@@ -1880,6 +2076,7 @@ fn filesystem_resource_provider_loads_assets_and_reuses_decoded_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Contain,
+            radius: 0.0,
         },
     )
     .expect("prepared image reused");
