@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
+use std::hint::black_box;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use skia_safe::{Color as SkColor, EncodedImageFormat, Paint, Rect, surfaces};
 use taffy_canvas_core::{
-    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Renderer, Template, TemplateParams,
+    MemoryAssetProvider, PreparedImageRequest, RenderBackendPreference, RenderOptions, Renderer,
+    ResourceProvider, Template, TemplateParams,
 };
 
 fn bench_render(c: &mut Criterion) {
@@ -30,10 +32,20 @@ fn bench_render(c: &mut Criterion) {
     let mut image_assets = MemoryAssetProvider::new(BTreeMap::new());
     image_assets.insert_asset("swatch", image_bytes.clone());
     let renderer = Renderer::new(4).expect("renderer");
+    let image_grid_template = Template::compile(&image_grid_xml(24)).expect("compile image grid");
+    let image_grid_assets = image_assets.clone();
 
     renderer
         .render(&image_template, &params, &image_assets, cpu_options())
         .expect("warm image cache");
+    renderer
+        .render(
+            &image_grid_template,
+            &params,
+            &image_grid_assets,
+            cpu_options(),
+        )
+        .expect("warm image grid cache");
 
     c.bench_function("template_compile", |b| {
         b.iter(|| {
@@ -58,6 +70,59 @@ fn bench_render(c: &mut Criterion) {
             let mut cold_assets = MemoryAssetProvider::new(BTreeMap::new());
             cold_assets.insert_asset("swatch", image_bytes.clone());
             let _ = renderer.render(&image_template, &params, &cold_assets, cpu_options());
+        });
+    });
+
+    c.bench_function("prepared_image_cache_hit", |b| {
+        let request = PreparedImageRequest {
+            key: "swatch",
+            width: 96,
+            height: 96,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 12.0,
+        };
+        b.iter(|| {
+            let image =
+                ResourceProvider::load_prepared_image(&image_assets, black_box(&request)).unwrap();
+            black_box(image);
+        });
+    });
+
+    c.bench_function("prepared_image_cache_miss", |b| {
+        b.iter(|| {
+            let mut cold_assets = MemoryAssetProvider::new(BTreeMap::new());
+            cold_assets.insert_asset("swatch", image_bytes.clone());
+            let image = ResourceProvider::load_prepared_image(
+                &cold_assets,
+                black_box(&PreparedImageRequest {
+                    key: "swatch",
+                    width: 96,
+                    height: 96,
+                    fit: taffy_canvas_core::ImageFit::Cover,
+                    radius: 12.0,
+                }),
+            )
+            .unwrap();
+            black_box(image);
+        });
+    });
+
+    c.bench_function("image_grid_render_cached", |b| {
+        b.iter(|| {
+            let _ = renderer.render(
+                &image_grid_template,
+                &params,
+                &image_grid_assets,
+                cpu_options(),
+            );
+        });
+    });
+
+    c.bench_function("image_grid_render_cold", |b| {
+        b.iter(|| {
+            let mut cold_assets = MemoryAssetProvider::new(BTreeMap::new());
+            cold_assets.insert_asset("swatch", image_bytes.clone());
+            let _ = renderer.render(&image_grid_template, &params, &cold_assets, cpu_options());
         });
     });
 
@@ -89,6 +154,19 @@ fn sample_image_png() -> Vec<u8> {
         .expect("png")
         .as_bytes()
         .to_vec()
+}
+
+fn image_grid_xml(image_count: usize) -> String {
+    let mut xml = String::from(r##"<view width="512" height="512" background="#101820">"##);
+    for index in 0..image_count {
+        let x = 8 + (index % 6) * 82;
+        let y = 8 + (index / 6) * 82;
+        xml.push_str(&format!(
+            r#"<image src="swatch" width="72" height="72" fit="cover" radius="12" position="absolute" left="{x}" top="{y}" />"#
+        ));
+    }
+    xml.push_str("</view>");
+    xml
 }
 
 fn cpu_options() -> RenderOptions {

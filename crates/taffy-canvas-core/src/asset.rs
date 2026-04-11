@@ -27,6 +27,7 @@ pub struct PreparedImageKey {
     pub width: u32,
     pub height: u32,
     pub fit: ImageFit,
+    pub radius_bits: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -35,6 +36,7 @@ pub struct PreparedImageRequest<'a> {
     pub width: u32,
     pub height: u32,
     pub fit: ImageFit,
+    pub radius: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -161,6 +163,7 @@ impl ResourceProvider for MemoryAssetProvider {
                 width: request.width,
                 height: request.height,
                 fit: request.fit,
+                radius_bits: request.radius.to_bits(),
             },
         );
         if let Some(image) = self
@@ -297,6 +300,7 @@ impl ResourceProvider for FileSystemResourceProvider {
                 width: request.width,
                 height: request.height,
                 fit: request.fit,
+                radius_bits: request.radius.to_bits(),
             },
         );
         if let Some(image) = self
@@ -343,6 +347,18 @@ fn prepare_image(image: Image, request: &PreparedImageRequest<'_>) -> Result<Ima
         request.height as f32,
         request.fit,
     );
+    if request.radius > 0.0 {
+        canvas.save();
+        canvas.clip_rrect(
+            skia_safe::RRect::new_rect_xy(
+                skia_safe::Rect::from_xywh(0.0, 0.0, request.width as f32, request.height as f32),
+                request.radius,
+                request.radius,
+            ),
+            None,
+            Some(true),
+        );
+    }
     canvas.draw_image_rect_with_sampling_options(
         image,
         None,
@@ -350,6 +366,9 @@ fn prepare_image(image: Image, request: &PreparedImageRequest<'_>) -> Result<Ima
         SamplingOptions::default(),
         &skia_safe::Paint::default(),
     );
+    if request.radius > 0.0 {
+        canvas.restore();
+    }
 
     surface
         .image_snapshot()

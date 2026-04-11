@@ -1783,6 +1783,7 @@ fn memory_asset_provider_reuses_prepared_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
         },
     )
     .expect("first prepared image");
@@ -1793,12 +1794,57 @@ fn memory_asset_provider_reuses_prepared_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
         },
     )
     .expect("second prepared image");
 
     assert_eq!(assets.prepared_image_count(), 1);
     assert_eq!(first.unique_id(), second.unique_id());
+}
+
+#[test]
+fn memory_asset_provider_distinguishes_prepared_images_by_radius() {
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let rounded = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 3.0,
+        },
+    )
+    .expect("rounded prepared image");
+    let rounded_again = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 3.0,
+        },
+    )
+    .expect("rounded prepared image reused");
+    let square = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 12,
+            height: 6,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
+        },
+    )
+    .expect("square prepared image");
+
+    assert_eq!(assets.prepared_image_count(), 2);
+    assert_eq!(rounded.unique_id(), rounded_again.unique_id());
+    assert_ne!(rounded.unique_id(), square.unique_id());
 }
 
 #[test]
@@ -1870,6 +1916,7 @@ fn filesystem_resource_provider_loads_assets_and_reuses_decoded_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Contain,
+            radius: 0.0,
         },
     )
     .expect("prepared image");
@@ -1880,6 +1927,7 @@ fn filesystem_resource_provider_loads_assets_and_reuses_decoded_images() {
             width: 12,
             height: 6,
             fit: taffy_canvas_core::ImageFit::Contain,
+            radius: 0.0,
         },
     )
     .expect("prepared image reused");

@@ -8,7 +8,7 @@ use skia_safe::{
     AlphaType, Color as SkColor, ColorType, EncodedImageFormat, ImageInfo, Paint, PaintStyle,
     PathBuilder, PathEffect, RRect, Rect, SamplingOptions,
     paint::Cap,
-    surfaces,
+    png_encoder, surfaces,
     textlayout::{RectHeightStyle, RectWidthStyle},
 };
 
@@ -91,7 +91,7 @@ pub fn render_document(
 ) -> Result<RenderOutput> {
     let layout = layout_document(document, measurer)?;
     match options.backend {
-        RenderBackendPreference::Cpu => render_layout_cpu(&layout, measurer, assets),
+        RenderBackendPreference::Cpu => render_layout_cpu(layout, measurer, assets),
         RenderBackendPreference::Gpu => render_layout_gpu(&layout, measurer, assets),
         RenderBackendPreference::Auto => render_layout_gpu(&layout, measurer, assets)
             .or_else(|_| render_layout_cpu(&layout, measurer, assets)),
@@ -99,17 +99,18 @@ pub fn render_document(
 }
 
 fn render_layout_cpu(
-    layout: &crate::document::RenderedDocument,
+    layout: impl std::borrow::Borrow<crate::document::RenderedDocument>,
     measurer: &SkiaTextMeasurer,
     assets: &dyn ResourceProvider,
 ) -> Result<RenderOutput> {
+    let layout = layout.borrow();
     let mut surface = surfaces::raster_n32_premul((layout.width as i32, layout.height as i32))
         .ok_or_else(|| TaffyCanvasError::Render("failed to create raster surface".to_string()))?;
     let canvas = surface.canvas();
     canvas.clear(SkColor::TRANSPARENT);
 
     draw_node(canvas, &layout.root, measurer, assets)?;
-    finish_surface(&mut surface, layout.clone(), RenderBackend::Cpu)
+    finish_surface_cpu(&mut surface, layout.clone())
 }
 
 #[cfg(target_os = "macos")]
@@ -203,13 +204,10 @@ fn render_layout_gpu(
     ))
 }
 
-fn finish_surface(
+fn finish_surface_cpu(
     surface: &mut skia_safe::Surface,
     layout: crate::document::RenderedDocument,
-    backend: RenderBackend,
 ) -> Result<RenderOutput> {
-    let image = surface.image_snapshot();
-
     let info = ImageInfo::new(
         (layout.width as i32, layout.height as i32),
         ColorType::RGBA8888,
@@ -223,16 +221,18 @@ fn finish_surface(
         ));
     }
 
-    let png_bytes = image
-        .encode(None, EncodedImageFormat::PNG, None)
-        .ok_or_else(|| TaffyCanvasError::Render("failed to encode png".to_string()))?
-        .as_bytes()
-        .to_vec();
+    let pixmap = surface.peek_pixels().ok_or_else(|| {
+        TaffyCanvasError::Render("failed to access raster pixels for png encode".to_string())
+    })?;
+    let mut png_bytes = Vec::new();
+    if !png_encoder::encode(&pixmap, &mut png_bytes, &cpu_png_encode_options()) {
+        return Err(TaffyCanvasError::Render("failed to encode png".to_string()));
+    }
 
     Ok(RenderOutput {
         width: layout.width,
         height: layout.height,
-        backend,
+        backend: RenderBackend::Cpu,
         png_bytes,
         pixels_rgba,
         layout,
@@ -466,9 +466,8 @@ fn draw_node(
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
     draw_box(canvas, node);
-    let should_clip = overflow_clips(node.style.overflow_x)
-        || overflow_clips(node.style.overflow_y)
-        || matches!(node.kind, LayoutNodeKind::Image { .. }) && node.style.border_radius > 0.0;
+    let should_clip =
+        overflow_clips(node.style.overflow_x) || overflow_clips(node.style.overflow_y);
     if should_clip {
         canvas.save();
         clip_node(canvas, node);
@@ -574,8 +573,8 @@ fn clip_node(canvas: &skia_safe::Canvas, node: &LayoutNode) {
         node.layout.height,
     );
     let should_radius_clip = node.style.border_radius > 0.0
-        && (matches!(node.kind, LayoutNodeKind::Image { .. })
-            || (overflow_clips(node.style.overflow_x) && overflow_clips(node.style.overflow_y)));
+        && overflow_clips(node.style.overflow_x)
+        && overflow_clips(node.style.overflow_y);
 
     if should_radius_clip {
         let rrect = RRect::new_rect_xy(
@@ -597,17 +596,34 @@ fn draw_image_rect(
     rect: Rect,
     assets: &dyn ResourceProvider,
 ) -> Result<()> {
+    let target_width = rect.width().round().max(1.0) as u32;
+    let target_height = rect.height().round().max(1.0) as u32;
     let image = assets.load_prepared_image(&PreparedImageRequest {
         key: src,
-        width: rect.width().round().max(1.0) as u32,
-        height: rect.height().round().max(1.0) as u32,
+        width: target_width,
+        height: target_height,
         fit: style.image_fit,
+        radius: style.border_radius,
     })?;
-    let mut paint = Paint::default();
-    paint.set_anti_alias(true);
-    let sampling = SamplingOptions::default();
-    canvas.draw_image_rect_with_sampling_options(image, None, rect, sampling, &paint);
+    if rect.width() == image.width() as f32 && rect.height() == image.height() as f32 {
+        canvas.draw_image(&image, (rect.left, rect.top), None);
+    } else {
+        canvas.draw_image_rect_with_sampling_options(
+            &image,
+            None,
+            rect,
+            SamplingOptions::default(),
+            &Paint::default(),
+        );
+    }
     Ok(())
+}
+
+fn cpu_png_encode_options() -> png_encoder::Options {
+    let mut options = png_encoder::Options::default();
+    options.filter_flags = png_encoder::FilterFlag::SUB;
+    options.z_lib_level = 2;
+    options
 }
 
 fn draw_text_decorations(canvas: &skia_safe::Canvas, node: &LayoutNode, scene: &ParagraphScene) {
