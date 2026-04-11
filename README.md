@@ -29,6 +29,7 @@ The goal is to describe an image once, bind data into it quickly, and render it 
   - text decoration, fragment background, text shadow, spacing, line height, baseline shift
 - Layout powered by Taffy:
   - `flex`, `block`, `grid`, `none`
+  - fixed-size or auto-sized root views
   - absolute and fixed positioning
   - percentages, auto margins, aspect ratio
   - gaps, per-side spacing, block/inline axis spacing shorthands
@@ -61,6 +62,17 @@ Basic example:
 </view>
 ```
 
+Auto-sized root for document-style flow:
+
+```xml
+<view flex-direction="column" background="#101820">
+  <text color="#ffffff">Headline</text>
+  <view margin-top="8" padding="12" background="#1f2d3a">
+    <text color="#ffffff">This root grows from layout instead of fixed bounds.</text>
+  </view>
+</view>
+```
+
 Inline styling:
 
 ```xml
@@ -75,7 +87,8 @@ Inline styling:
 Rules:
 
 - Root must be `<view>`.
-- Root `width` and `height` must be absolute lengths.
+- Root `width` and `height` are optional. When omitted, the root view auto-sizes from layout flow.
+- Root `width` and `height` must be absolute lengths when provided.
 - `image` requires `src`.
 - Inline `image` requires explicit `width` and `height`.
 - `text` can use text content or a `value` attribute.

@@ -364,8 +364,8 @@ pub struct Node {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Document {
-    pub width: u32,
-    pub height: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
     pub root: Node,
 }
 

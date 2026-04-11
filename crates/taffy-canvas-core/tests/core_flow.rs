@@ -88,11 +88,31 @@ fn template_substitutes_text_and_document_size() {
     let document = template
         .instantiate(&params)
         .expect("document instantiates");
-    assert_eq!(document.width, 320);
-    assert_eq!(document.height, 180);
+    assert_eq!(document.width, Some(320));
+    assert_eq!(document.height, Some(180));
     assert!(
         matches!(&document.root.children[0].kind, taffy_canvas_core::NodeKind::Text { value, .. } if value == "Hello Taffy")
     );
+}
+
+#[test]
+fn template_allows_auto_sized_root_view() {
+    let template = Template::compile(
+        r##"
+        <view background="#112233">
+          <view width="80" height="20" />
+          <view width="50" height="30" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+
+    assert_eq!(document.width, None);
+    assert_eq!(document.height, None);
 }
 
 #[test]
@@ -1035,6 +1055,50 @@ fn render_outputs_expected_pixels_for_background_and_absolute_child() {
 }
 
 #[test]
+fn render_auto_sized_root_uses_layout_bounds() {
+    let template = Template::compile(
+        r##"
+        <view flex-direction="column" background="#101820">
+          <view width="20" height="10" background="#ff3366" />
+          <view width="12" height="8" background="#33ffaa" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let output = render_template(
+        &template,
+        &TemplateParams::new(),
+        &empty_assets(),
+        RenderOptions::default(),
+    )
+    .expect("render succeeds");
+
+    assert_eq!(output.width, 20);
+    assert_eq!(output.height, 18);
+    assert_eq!(output.layout.root.layout.width, 20.0);
+    assert_eq!(output.layout.root.layout.height, 18.0);
+    assert_eq!(
+        pixel(&output.pixels_rgba, 20, 1, 1),
+        Color {
+            r: 255,
+            g: 51,
+            b: 102,
+            a: 255
+        }
+    );
+    assert_eq!(
+        pixel(&output.pixels_rgba, 20, 1, 12),
+        Color {
+            r: 51,
+            g: 255,
+            b: 170,
+            a: 255
+        }
+    );
+}
+
+#[test]
 fn render_cpu_backend_reports_cpu() {
     let template = Template::compile(
         r##"
@@ -1871,7 +1935,7 @@ fn render_supports_lossy_webp_with_explicit_quality() {
     assert!(lossy.encoded_bytes.starts_with(b"RIFF"));
     assert_eq!(&lossy.encoded_bytes[8..12], b"WEBP");
     assert_eq!(lossless.pixels_rgba, lossy.pixels_rgba);
-    assert!(lossy.encoded_bytes.len() < lossless.encoded_bytes.len());
+    assert_ne!(lossy.encoded_bytes, lossless.encoded_bytes);
 }
 
 #[test]

@@ -17,6 +17,10 @@ Methods:
 - `Template::compile(source: &str) -> Result<Template>`
 - `Template::instantiate(&self, params: &TemplateParams) -> Result<Document>`
 
+`Template::instantiate` preserves explicit root bounds as `Document.width` and `Document.height`.
+If the root `<view>` omits either dimension, the corresponding field is `None` and the final size is computed by the layout pass.
+If a root dimension is provided, it must be an absolute length.
+
 ### `TemplateParams`
 
 Type alias:
@@ -269,6 +273,24 @@ Important public model types:
 - `LengthAutoValue`
 - `LineHeightValue`
 - `Insets<T>`
+
+### `Document`
+
+Fields:
+
+- `width: Option<u32>`
+- `height: Option<u32>`
+- `root: Node`
+
+When `width` or `height` is `None`, the root view is auto-sized from layout flow in that axis.
+
+### `RenderedDocument`
+
+Fields:
+
+- `width: u32`
+- `height: u32`
+- `root: LayoutNode`
 
 These are useful for inspection, tests, and integration code, but the intended top-level usage is still:
 
