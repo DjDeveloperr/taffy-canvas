@@ -1,13 +1,19 @@
-use std::{fs, path::Path, sync::OnceLock};
+use std::{
+    fs,
+    path::Path,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use napi::{
     Error, Result, Status,
-    bindgen_prelude::{Buffer, External},
+    bindgen_prelude::{Buffer, Either, External},
 };
 use napi_derive::napi;
 use serde_json::Value;
 use taffy_canvas_core::{
-    MemoryAssetProvider, RenderBackendPreference, RenderOptions, Renderer, Template, TemplateParams,
+    EncodedImageFormat, MemoryAssetProvider, OutputSize, RenderBackendPreference, RenderOptions,
+    Renderer, RendererConfig, RendererThreads, Template, TemplateParams, WebpEncodingMode,
 };
 
 static DEFAULT_RENDERER: OnceLock<Renderer> = OnceLock::new();
@@ -16,7 +22,7 @@ static DEFAULT_RENDERER: OnceLock<Renderer> = OnceLock::new();
 pub struct PreparedTemplateHandle {
     renderer: Renderer,
     resources: MemoryAssetProvider,
-    template: Template,
+    template: Arc<Template>,
 }
 
 #[derive(Clone)]
@@ -33,15 +39,39 @@ pub struct ResourceSummary {
     pub prepared_images: u32,
 }
 
+#[napi(object)]
+pub struct RenderConfig {
+    pub backend: Option<String>,
+    #[napi(js_name = "outputFormat")]
+    pub output_format: Option<String>,
+    #[napi(js_name = "outputSize")]
+    pub output_size: Option<String>,
+    #[napi(js_name = "webpMode")]
+    pub webp_mode: Option<String>,
+    #[napi(js_name = "webpQuality")]
+    pub webp_quality: Option<f64>,
+}
+
+#[napi(object)]
+pub struct RendererConfigInput {
+    #[napi(js_name = "minThreads")]
+    pub min_threads: Option<u32>,
+    #[napi(js_name = "maxThreads")]
+    pub max_threads: Option<u32>,
+    #[napi(js_name = "idleMs")]
+    pub idle_ms: Option<u32>,
+}
+
 #[napi]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
 #[napi]
-pub fn create_renderer(threads: Option<u32>) -> Result<External<Renderer>> {
-    let threads = threads.unwrap_or_else(default_threads);
-    let renderer = Renderer::new(threads as usize).map_err(to_napi_error)?;
+pub fn create_renderer(
+    config: Option<Either<u32, RendererConfigInput>>,
+) -> Result<External<Renderer>> {
+    let renderer = Renderer::with_config(parse_renderer_config(config)?).map_err(to_napi_error)?;
     Ok(External::new(renderer))
 }
 
@@ -129,7 +159,7 @@ pub fn prepare_template(
     External::new(PreparedTemplateHandle {
         renderer: default_renderer().clone(),
         resources: resources.as_ref().clone(),
-        template: template.as_ref().clone(),
+        template: Arc::new(template.as_ref().clone()),
     })
 }
 
@@ -142,7 +172,7 @@ pub fn prepare_template_with_renderer(
     External::new(PreparedTemplateHandle {
         renderer: renderer.as_ref().clone(),
         resources: resources.as_ref().clone(),
-        template: template.as_ref().clone(),
+        template: Arc::new(template.as_ref().clone()),
     })
 }
 
@@ -174,15 +204,15 @@ pub fn extend_template_session(
 pub fn render_xml_sync(
     xml: String,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let template = Template::compile(&xml).map_err(to_napi_error)?;
     render_with_template(
         default_renderer(),
-        &template,
+        Arc::new(template),
         normalize_params(params)?,
-        &MemoryAssetProvider::default(),
-        backend,
+        MemoryAssetProvider::default(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -191,7 +221,7 @@ pub fn render_xml_sync(
 pub async fn render_xml(
     xml: String,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let params = normalize_params(params)?;
     let renderer = default_renderer().clone();
@@ -200,10 +230,10 @@ pub async fn render_xml(
         let template = Template::compile(&xml).map_err(to_napi_error)?;
         render_with_template(
             &renderer,
-            &template,
+            Arc::new(template),
             params,
-            &MemoryAssetProvider::default(),
-            backend,
+            MemoryAssetProvider::default(),
+            options,
         )
     })
     .await
@@ -216,14 +246,14 @@ pub async fn render_xml(
 pub fn render_compiled_sync(
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     render_with_template(
         default_renderer(),
-        template.as_ref(),
+        Arc::new(template.as_ref().clone()),
         normalize_params(params)?,
-        &MemoryAssetProvider::default(),
-        backend,
+        MemoryAssetProvider::default(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -232,7 +262,7 @@ pub fn render_compiled_sync(
 pub async fn render_compiled(
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let renderer = default_renderer().clone();
     let template = template.as_ref().clone();
@@ -241,10 +271,10 @@ pub async fn render_compiled(
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         render_with_template(
             &renderer,
-            &template,
+            Arc::new(template),
             params,
-            &MemoryAssetProvider::default(),
-            backend,
+            MemoryAssetProvider::default(),
+            options,
         )
     })
     .await
@@ -258,14 +288,14 @@ pub fn render_with_renderer_sync(
     renderer: &External<Renderer>,
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     render_with_template(
         renderer.as_ref(),
-        template.as_ref(),
+        Arc::new(template.as_ref().clone()),
         normalize_params(params)?,
-        &MemoryAssetProvider::default(),
-        backend,
+        MemoryAssetProvider::default(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -275,7 +305,7 @@ pub async fn render_with_renderer(
     renderer: &External<Renderer>,
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let renderer = renderer.as_ref().clone();
     let template = template.as_ref().clone();
@@ -284,10 +314,10 @@ pub async fn render_with_renderer(
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         render_with_template(
             &renderer,
-            &template,
+            Arc::new(template),
             params,
-            &MemoryAssetProvider::default(),
-            backend,
+            MemoryAssetProvider::default(),
+            options,
         )
     })
     .await
@@ -301,14 +331,14 @@ pub fn render_compiled_with_resources_sync(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     render_with_template(
         default_renderer(),
-        template.as_ref(),
+        Arc::new(template.as_ref().clone()),
         normalize_params(params)?,
-        resources.as_ref(),
-        backend,
+        resources.as_ref().clone(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -318,7 +348,7 @@ pub async fn render_compiled_with_resources(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let renderer = default_renderer().clone();
     let template = template.as_ref().clone();
@@ -326,7 +356,7 @@ pub async fn render_compiled_with_resources(
     let params = normalize_params(params)?;
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        render_with_template(&renderer, &template, params, &resources, backend)
+        render_with_template(&renderer, Arc::new(template), params, resources, options)
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -340,14 +370,14 @@ pub fn render_with_renderer_and_resources_sync(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     render_with_template(
         renderer.as_ref(),
-        template.as_ref(),
+        Arc::new(template.as_ref().clone()),
         normalize_params(params)?,
-        resources.as_ref(),
-        backend,
+        resources.as_ref().clone(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -358,7 +388,7 @@ pub async fn render_with_renderer_and_resources(
     resources: &External<MemoryAssetProvider>,
     template: &External<Template>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let renderer = renderer.as_ref().clone();
     let resources = resources.as_ref().clone();
@@ -366,7 +396,7 @@ pub async fn render_with_renderer_and_resources(
     let params = normalize_params(params)?;
 
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        render_with_template(&renderer, &template, params, &resources, backend)
+        render_with_template(&renderer, Arc::new(template), params, resources, options)
     })
     .await
     .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
@@ -378,14 +408,14 @@ pub async fn render_with_renderer_and_resources(
 pub fn render_prepared_sync(
     prepared: &External<PreparedTemplateHandle>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     render_with_template(
         &prepared.renderer,
-        &prepared.template,
+        prepared.template.clone(),
         normalize_params(params)?,
-        &prepared.resources,
-        backend,
+        prepared.resources.clone(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -394,7 +424,7 @@ pub fn render_prepared_sync(
 pub async fn render_prepared(
     prepared: &External<PreparedTemplateHandle>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let prepared = prepared.as_ref().clone();
     let params = normalize_params(params)?;
@@ -402,10 +432,10 @@ pub async fn render_prepared(
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         render_with_template(
             &prepared.renderer,
-            &prepared.template,
+            prepared.template.clone(),
             params,
-            &prepared.resources,
-            backend,
+            prepared.resources,
+            options,
         )
     })
     .await
@@ -418,15 +448,15 @@ pub async fn render_prepared(
 pub fn render_template_session_sync(
     session: &External<TemplateSessionHandle>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let merged = merge_template_params(&session.base_params, normalize_params(params)?);
     render_with_template(
         &session.prepared.renderer,
-        &session.prepared.template,
+        session.prepared.template.clone(),
         merged,
-        &session.prepared.resources,
-        backend,
+        session.prepared.resources.clone(),
+        options,
     )
     .map(Buffer::from)
 }
@@ -435,7 +465,7 @@ pub fn render_template_session_sync(
 pub async fn render_template_session(
     session: &External<TemplateSessionHandle>,
     params: Option<Value>,
-    backend: Option<String>,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Buffer> {
     let session = session.as_ref().clone();
     let merged = merge_template_params(&session.base_params, normalize_params(params)?);
@@ -443,10 +473,10 @@ pub async fn render_template_session(
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         render_with_template(
             &session.prepared.renderer,
-            &session.prepared.template,
+            session.prepared.template.clone(),
             merged,
-            &session.prepared.resources,
-            backend,
+            session.prepared.resources,
+            options,
         )
     })
     .await
@@ -457,19 +487,31 @@ pub async fn render_template_session(
 
 fn render_with_template(
     renderer: &Renderer,
-    template: &Template,
+    template: Arc<Template>,
     params: TemplateParams,
-    resources: &MemoryAssetProvider,
-    backend: Option<String>,
+    resources: MemoryAssetProvider,
+    options: Option<Either<String, RenderConfig>>,
 ) -> Result<Vec<u8>> {
-    let options = parse_render_options(backend)?;
+    let options = parse_render_options(options)?;
     let output = renderer
-        .render(template, &params, resources, options)
+        .render_owned(template, params, resources, options)
         .map_err(to_napi_error)?;
-    Ok(output.png_bytes)
+    Ok(output.encoded_bytes)
 }
 
-fn parse_render_options(backend: Option<String>) -> Result<RenderOptions> {
+fn parse_render_options(input: Option<Either<String, RenderConfig>>) -> Result<RenderOptions> {
+    let (backend, output_format, output_size, webp_mode, webp_quality) = match input {
+        None => (None, None, None, None, None),
+        Some(Either::A(backend)) => (Some(backend), None, None, None, None),
+        Some(Either::B(config)) => (
+            config.backend,
+            config.output_format,
+            config.output_size,
+            config.webp_mode,
+            config.webp_quality,
+        ),
+    };
+
     let backend = match backend.as_deref() {
         None | Some("auto") => RenderBackendPreference::Auto,
         Some("cpu") => RenderBackendPreference::Cpu,
@@ -482,10 +524,91 @@ fn parse_render_options(backend: Option<String>) -> Result<RenderOptions> {
         }
     };
 
+    let output_format = match output_format.as_deref() {
+        None | Some("png") => EncodedImageFormat::Png,
+        Some("webp") => EncodedImageFormat::Webp,
+        Some(other) => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("outputFormat must be `png` or `webp`, got `{other}`"),
+            ));
+        }
+    };
+
+    let output_size = match output_size.as_deref() {
+        None | Some("fast") => OutputSize::Fast,
+        Some("balanced") => OutputSize::Balanced,
+        Some("small") => OutputSize::Small,
+        Some(other) => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("outputSize must be `fast`, `balanced`, or `small`, got `{other}`"),
+            ));
+        }
+    };
+
+    let webp_mode = match webp_mode.as_deref() {
+        None | Some("lossless") => WebpEncodingMode::Lossless,
+        Some("lossy") => WebpEncodingMode::Lossy,
+        Some(other) => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("webpMode must be `lossless` or `lossy`, got `{other}`"),
+            ));
+        }
+    };
+
+    let webp_quality = match webp_quality {
+        None => RenderOptions::default().webp_quality,
+        Some(value) if (0.0..=100.0).contains(&value) => value as f32,
+        Some(value) => {
+            return Err(Error::new(
+                Status::InvalidArg,
+                format!("webpQuality must be between 0 and 100, got `{value}`"),
+            ));
+        }
+    };
+
     Ok(RenderOptions {
         backend,
+        output_format,
+        output_size,
+        webp_mode,
+        webp_quality,
+        include_encoded: true,
+        include_rgba: false,
         ..RenderOptions::default()
     })
+}
+
+fn parse_renderer_config(
+    input: Option<Either<u32, RendererConfigInput>>,
+) -> Result<RendererConfig> {
+    match input {
+        None => Ok(RendererConfig::default()),
+        Some(Either::A(threads)) => Ok(RendererConfig {
+            threads: RendererThreads::Fixed(threads.max(1) as usize),
+        }),
+        Some(Either::B(config)) => {
+            let min_threads = config.min_threads.unwrap_or_else(default_threads).max(1) as usize;
+            let max_threads = config.max_threads.map(|value| value.max(1) as usize);
+            let idle_timeout = Duration::from_millis(config.idle_ms.unwrap_or(5_000) as u64);
+
+            let threads = match max_threads {
+                None => RendererThreads::Fixed(min_threads),
+                Some(max_threads) if max_threads <= min_threads => {
+                    RendererThreads::Fixed(min_threads)
+                }
+                Some(max_threads) => RendererThreads::Auto {
+                    min: min_threads,
+                    max: max_threads,
+                    idle_timeout,
+                },
+            };
+
+            Ok(RendererConfig { threads })
+        }
+    }
 }
 
 fn normalize_params(input: Option<Value>) -> Result<TemplateParams> {

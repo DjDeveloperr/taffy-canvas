@@ -2,7 +2,7 @@
 
 This document describes the public Node.js API exposed by `taffy-canvas`.
 
-The package is implemented with `napi-rs` and returns PNG data as `Buffer`.
+The package is implemented with `napi-rs` and returns encoded image data as `Buffer`.
 
 ## Value Types
 
@@ -28,6 +28,30 @@ Nested objects and arrays are flattened automatically:
 type RenderBackend = "auto" | "cpu" | "gpu"
 ```
 
+### `RenderConfig`
+
+```ts
+interface RenderConfig {
+  backend?: RenderBackend
+  outputFormat?: "png" | "webp"
+  outputSize?: "fast" | "balanced" | "small"
+  webpMode?: "lossless" | "lossy"
+  webpQuality?: number
+}
+```
+
+`outputFormat` defaults to `"png"`.
+
+`"fast"` is the default and prioritizes CPU render latency. `"small"` spends more CPU to reduce encoded size.
+
+When `outputFormat` is `"webp"`:
+
+- `webpMode` defaults to `"lossless"`
+- `webpQuality` defaults to `85`
+- `outputSize` controls encoder effort for lossy WebP and effort/size tradeoff for lossless WebP
+
+`webpQuality` must be between `0` and `100`.
+
 ## Handle Types
 
 Opaque handle objects returned by the native layer:
@@ -46,9 +70,21 @@ Returns the package version.
 
 ## Renderer APIs
 
-### `createRenderer(threads?: number | null): Renderer`
+### `createRenderer(config?: number | RendererConfig | null): Renderer`
 
 Create a reusable render pool.
+
+`number` creates a fixed-size pool. A config object enables auto-sizing:
+
+```ts
+interface RendererConfig {
+  minThreads?: number
+  maxThreads?: number
+  idleMs?: number
+}
+```
+
+If `maxThreads` is greater than `minThreads`, the pool grows under load and shrinks back after idle time.
 
 ## Resource APIs
 
@@ -136,7 +172,12 @@ Clone a session with additional base params layered on top.
 
 ## Render APIs
 
-All render functions return a PNG `Buffer`.
+All render functions return an encoded image `Buffer`.
+
+The last argument on every render function accepts either:
+
+- a backend string such as `"cpu"`
+- a config object such as `{ backend: "cpu", outputFormat: "webp", outputSize: "fast", webpMode: "lossy", webpQuality: 85 }`
 
 ### One-shot XML
 
@@ -208,11 +249,13 @@ const session = createTemplateSession(prepared, {
   stats: { hp: 42 },
 });
 
-const png = await renderTemplateSession(
-  session,
-  { stats: { hp: 99 } },
-  "auto"
-);
+const image = await renderTemplateSession(session, { stats: { hp: 99 } }, {
+  backend: "auto",
+  outputFormat: "webp",
+  outputSize: "fast",
+  webpMode: "lossy",
+  webpQuality: 85,
+});
 ```
 
 ## XML Surface

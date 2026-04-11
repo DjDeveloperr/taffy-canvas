@@ -5,12 +5,28 @@ export type TemplateParamValue =
   | { [key: string]: TemplateParamValue }
 export type TemplateParams = Record<string, TemplateParamValue>
 export type RenderBackend = 'auto' | 'cpu' | 'gpu'
+export type RenderOutputFormat = 'png' | 'webp'
+export type RenderOutputSize = 'fast' | 'balanced' | 'small'
+export type RenderWebpMode = 'lossless' | 'lossy'
+export interface RenderConfig {
+  backend?: RenderBackend | null
+  outputFormat?: RenderOutputFormat | null
+  outputSize?: RenderOutputSize | null
+  webpMode?: RenderWebpMode | null
+  webpQuality?: number | null
+}
+export type RenderInput = RenderBackend | RenderConfig
 
 export type Renderer = object
 export type Resources = object
 export type CompiledTemplate = object
 export type PreparedTemplate = object
 export type TemplateSession = object
+export interface RendererConfig {
+  minThreads?: number | null
+  maxThreads?: number | null
+  idleMs?: number | null
+}
 
 export interface ResourceSummary {
   assets: number
@@ -21,7 +37,7 @@ export interface ResourceSummary {
 
 export function version(): string
 
-export function createRenderer(threads?: number | null): Renderer
+export function createRenderer(config?: number | RendererConfig | null): Renderer
 export function createResources(): Resources
 export function createResourcesFromManifest(path: string): Resources
 export function addResourceAsset(resources: Resources, key: string, bytes: Buffer): void
@@ -61,49 +77,49 @@ export function extendTemplateSession(
 export function renderXmlSync(
   xml: string,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderXml(
   xml: string,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
 
 export function renderCompiledSync(
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderCompiled(
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
 
 export function renderWithRendererSync(
   renderer: Renderer,
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderWithRenderer(
   renderer: Renderer,
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
 
 export function renderCompiledWithResourcesSync(
   resources: Resources,
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderCompiledWithResources(
   resources: Resources,
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
 
 export function renderWithRendererAndResourcesSync(
@@ -111,34 +127,34 @@ export function renderWithRendererAndResourcesSync(
   resources: Resources,
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderWithRendererAndResources(
   renderer: Renderer,
   resources: Resources,
   template: CompiledTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
 
 export function renderPreparedSync(
   prepared: PreparedTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderPrepared(
   prepared: PreparedTemplate,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
 
 export function renderTemplateSessionSync(
   session: TemplateSession,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Buffer
 export function renderTemplateSession(
   session: TemplateSession,
   params?: TemplateParams | null,
-  backend?: RenderBackend | null
+  options?: RenderInput | null
 ): Promise<Buffer>
