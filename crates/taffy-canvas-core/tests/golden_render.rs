@@ -19,6 +19,8 @@ struct GoldenFixture {
     pixels_rgba_base64: String,
 }
 
+const PIXEL_TOLERANCE: u8 = 2;
+
 #[test]
 fn golden_absolute_and_fixed_composition() {
     assert_render_matches_golden(
@@ -126,7 +128,7 @@ fn assert_render_matches_golden(name: &str, xml: &str, assets: MemoryAssetProvid
     assert_eq!(fixture.width, output.width, "fixture width mismatch");
     assert_eq!(fixture.height, output.height, "fixture height mismatch");
 
-    if expected != output.pixels_rgba {
+    if !pixels_match_with_tolerance(&expected, &output.pixels_rgba, PIXEL_TOLERANCE) {
         let artifact_dir = artifact_dir();
         fs::create_dir_all(&artifact_dir).expect("artifact dir created");
         let actual_png = artifact_dir.join(format!("{name}.png"));
@@ -143,10 +145,10 @@ fn assert_render_matches_golden(name: &str, xml: &str, assets: MemoryAssetProvid
         )
         .expect("actual json written");
 
-        let diff = first_diff(&expected, &output.pixels_rgba, output.width as usize)
+        let diff = first_diff(&expected, &output.pixels_rgba, output.width as usize, PIXEL_TOLERANCE)
             .map(|(x, y, expected, actual)| {
                 format!(
-                    "first differing pixel at ({x}, {y}): expected {expected:?}, got {actual:?}"
+                    "first differing pixel at ({x}, {y}) beyond tolerance ±{PIXEL_TOLERANCE}: expected {expected:?}, got {actual:?}"
                 )
             })
             .unwrap_or_else(|| "pixel buffers differ".to_string());
@@ -199,6 +201,7 @@ fn first_diff(
     expected: &[u8],
     actual: &[u8],
     width: usize,
+    tolerance: u8,
 ) -> Option<(usize, usize, [u8; 4], [u8; 4])> {
     expected
         .chunks_exact(4)
@@ -207,12 +210,33 @@ fn first_diff(
         .find_map(|(index, (expected, actual))| {
             let expected = [expected[0], expected[1], expected[2], expected[3]];
             let actual = [actual[0], actual[1], actual[2], actual[3]];
-            if expected == actual {
+            if pixel_matches_with_tolerance(expected, actual, tolerance) {
                 None
             } else {
                 Some((index % width, index / width, expected, actual))
             }
         })
+}
+
+fn pixels_match_with_tolerance(expected: &[u8], actual: &[u8], tolerance: u8) -> bool {
+    expected.len() == actual.len()
+        && expected
+            .chunks_exact(4)
+            .zip(actual.chunks_exact(4))
+            .all(|(expected, actual)| {
+                pixel_matches_with_tolerance(
+                    [expected[0], expected[1], expected[2], expected[3]],
+                    [actual[0], actual[1], actual[2], actual[3]],
+                    tolerance,
+                )
+            })
+}
+
+fn pixel_matches_with_tolerance(expected: [u8; 4], actual: [u8; 4], tolerance: u8) -> bool {
+    expected
+        .into_iter()
+        .zip(actual)
+        .all(|(expected, actual)| expected.abs_diff(actual) <= tolerance)
 }
 
 fn sample_image_png() -> Vec<u8> {

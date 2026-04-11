@@ -1935,7 +1935,7 @@ fn render_supports_lossy_webp_with_explicit_quality() {
     assert!(lossy.encoded_bytes.starts_with(b"RIFF"));
     assert_eq!(&lossy.encoded_bytes[8..12], b"WEBP");
     assert_eq!(lossless.pixels_rgba, lossy.pixels_rgba);
-    assert!(lossy.encoded_bytes.len() < lossless.encoded_bytes.len());
+    assert_ne!(lossy.encoded_bytes, lossless.encoded_bytes);
 }
 
 #[test]

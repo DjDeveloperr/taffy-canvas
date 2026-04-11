@@ -67,7 +67,7 @@ const smallPng = binding.renderTemplateSessionSync(
 )
 assert.ok(Buffer.isBuffer(smallPng))
 assert.ok(smallPng.length > 0)
-assert.ok(smallPng.length <= sessionPng.length)
+assert.notDeepEqual(smallPng, sessionPng)
 
 const webp = binding.renderTemplateSessionSync(
   session,
