@@ -6,6 +6,9 @@ This repository is built around a few stable working patterns. Future coding age
 
 - `crates/taffy-canvas-core` is the real product. It owns XML compilation, style parsing, layout, rendering, resource loading, caching, and performance-sensitive code.
 - `crates/taffy-canvas-node` is a thin `napi-rs` wrapper around the core. Prefer exposing core capabilities instead of reimplementing logic in JS bindings.
+- `crates/taffy-canvas-wasm` is the Skia-backed web renderer target. Keep it aligned with core render semantics.
+- `packages/taffy-canvas-web` is the JS wrapper around the wasm renderer used by editor tooling.
+- `packages/taffy-canvas-vscode` is the local VS Code extension for live template preview.
 - `README.md` should stay concise and product-facing: project purpose, key features, and primary usage only.
 - `docs/rust.md` and `docs/js.md` are the authoritative API references.
 
@@ -32,6 +35,7 @@ This repository is built around a few stable working patterns. Future coding age
   - bind base params once when useful
   - render many times in parallel
 - CPU support is mandatory everywhere. GPU support is additive and must preserve CPU fallback behavior.
+- Web and editor preview support must render the same image output path as the core renderer instead of approximating with DOM/CSS.
 
 ## Testing Expectations
 
@@ -49,6 +53,7 @@ This repository is built around a few stable working patterns. Future coding age
 
 - Keep `README.md`, `docs/rust.md`, `docs/js.md`, and this `AGENTS.md` up to date whenever the public surface, workflow, or architecture meaningfully changes.
 - If you add, remove, or rename a Rust or JS API, update the relevant reference doc in the same change.
+- If you change the wasm/browser/editor preview surface, update this file and the relevant package docs in the same change.
 - If the project guidance here becomes stale, fix `AGENTS.md` instead of leaving drift behind.
 
 ## Editing Guidance

@@ -21,13 +21,16 @@ The Node binding supports:
 - byte-backed resources via `addResourceAsset()` and `addResourceFont()`
 - file-backed resource loading into reusable resource handles via `addResourceAssetFromFile()` and `addResourceFontFromFile()`
 - manifest-backed resource loading via `createResourcesFromManifest()` and `loadResourceManifest()`
+- caller-relative template file loading via `compileTemplateFile()`, `renderTemplateFileSync()`, `renderTemplateFile()`, and `createTemplateLoader()`
 - resource cache inspection via `inspectResources()`
+- computed layout inspection via `inspectXmlLayoutSync()`, `inspectCompiledLayoutSync()`, and `inspectTemplateFileLayoutSync()`
 - prepared template handles via `prepareTemplate()` and `prepareTemplateWithRenderer()`
 - template session handles via `createTemplateSession()` and `extendTemplateSession()`
 - repeated async renders through `renderPrepared()`
 - repeated async renders with nested-data overrides through `renderTemplateSession()`
 - the same XML renderer surface as Rust, including inline text spans and links, semantic inline tags, inline images, `<br />` line breaks, fragment backgrounds, `text-shadow`, axis-specific overflow clipping, named grid areas, and grid layouts with repeat/minmax/fit-content tracks
 - optional backend selection on every render call: `"auto"`, `"cpu"`, or `"gpu"`
+- packaged XML schema at `schemas/taffy-canvas.xsd` with exported `schemaPath`
 
 Nested JS objects and arrays are flattened into dotted template keys, so `{{player.name}}` and `{{inventory.0.label}}` work without manually flattening params first.
 

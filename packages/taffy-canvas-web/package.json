@@ -1,0 +1,11 @@
+{
+  "name": "taffy-canvas-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:wasm": "node ./scripts/build-emscripten.mjs"
+  },
+  "exports": {
+    ".": "./index.js"
+  }
+}

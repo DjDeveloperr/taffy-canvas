@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[features]
+default = ["renderer"]
+renderer = ["dep:skia-safe", "dep:webp"]
+
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
@@ -16,26 +20,26 @@ regex.workspace = true
 rustc-hash.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-skia-safe.workspace = true
 smallvec.workspace = true
 taffy.workspace = true
 thiserror.workspace = true
-webp = "0.3.1"
+skia-safe = { workspace = true, optional = true }
+webp = { version = "0.3.1", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.3"
 objc2-metal = "0.3.2"
-skia-safe = { workspace = true, features = ["gpu", "metal"] }
+skia-safe = { workspace = true, features = ["gpu", "metal"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 glutin = { version = "0.32.3", default-features = false, features = ["egl", "glx", "x11"] }
 raw-window-handle = "0.6.2"
-skia-safe = { workspace = true, features = ["gpu", "gl", "egl", "x11"] }
+skia-safe = { workspace = true, features = ["gpu", "gl", "egl", "x11"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 glutin = { version = "0.32.3", default-features = false, features = ["egl", "wgl"] }
 raw-window-handle = "0.6.2"
-skia-safe = { workspace = true, features = ["gpu", "gl"] }
+skia-safe = { workspace = true, features = ["gpu", "gl"], optional = true }
 
 [dev-dependencies]
 criterion.workspace = true

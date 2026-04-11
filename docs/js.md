@@ -3,6 +3,10 @@
 This document describes the public Node.js API exposed by `taffy-canvas`.
 
 The package is implemented with `napi-rs` and returns encoded image data as `Buffer`.
+It also ships [`schemas/taffy-canvas.xsd`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-node/schemas/taffy-canvas.xsd) for editor autocomplete and external XML linting.
+
+`<preview>` XML nodes are accepted by the compiler as editor metadata. They are ignored at render time.
+They may only appear as direct children of the root `<view>`.
 
 ## Value Types
 
@@ -67,6 +71,16 @@ Opaque handle objects returned by the native layer:
 ### `version(): string`
 
 Returns the package version.
+
+### `schemaPath: string`
+
+Absolute path to the packaged XSD schema.
+
+Example CLI lint:
+
+```bash
+xmllint --noout --schema "$(node -p 'require(\"taffy-canvas\").schemaPath')" ./card.xml
+```
 
 ## Renderer APIs
 
@@ -152,6 +166,94 @@ Useful for tests and cache inspection.
 
 Compile XML once into a reusable template.
 
+### `compileTemplateFile(path, options?): CompiledTemplate`
+
+Compile a template directly from disk.
+
+`options?.from` accepts either:
+
+- a file path such as `__filename`
+- a directory path
+- a file URL such as `import.meta.url`
+
+Relative template paths are resolved from that base, similar to module-relative `require()` usage.
+
+### `inspectXmlLayoutSync(xml, params?): LayoutInspectionDocument`
+
+Compile, instantiate, and lay out a template using the real Skia text measurer, then return the
+computed tree as a plain JS object for debugging.
+
+### `inspectCompiledLayoutSync(template, params?): LayoutInspectionDocument`
+
+Inspect layout for a previously compiled template.
+
+### `inspectTemplateFileLayoutSync(path, params?, options?): LayoutInspectionDocument`
+
+Compile a file relative to `options?.from`, then return the computed layout tree.
+
+### `resolveTemplatePath(path, options?): string`
+
+Resolve a template path without compiling it.
+
+### `createTemplateLoader(from): TemplateLoader`
+
+Create a small module-relative helper object.
+
+```ts
+interface TemplateLoader {
+  compileTemplateFile(path: string): CompiledTemplate
+  inspectTemplateFileLayoutSync(path: string, params?): LayoutInspectionDocument
+  renderTemplateFileSync(path: string, params?, options?): Buffer
+  renderTemplateFile(path: string, params?, options?): Promise<Buffer>
+}
+
+Returned layout inspection shape:
+
+```ts
+interface LayoutInspectionDocument {
+  width: number
+  height: number
+  root: LayoutInspectionNode
+}
+
+interface LayoutInspectionNode {
+  path: string
+  id: string | null
+  kind: "view" | "text" | "image"
+  value: string | null
+  src: string | null
+  fragments: unknown[] | null
+  text: {
+    line_count: number
+    did_wrap: boolean
+    paragraph_width: number
+    paragraph_height: number
+    longest_line: number
+    min_intrinsic_width: number
+    max_intrinsic_width: number
+  } | null
+  style: Record<string, unknown>
+  metadata: Record<string, string>
+  layout: { x: number; y: number; width: number; height: number }
+  content_bounds: { x: number; y: number; width: number; height: number }
+  overflow: {
+    has_overflow: boolean
+    left: number
+    top: number
+    right: number
+    bottom: number
+  }
+  children: LayoutInspectionNode[]
+}
+```
+
+`overflow` reports when descendant content extends beyond the node's own computed layout box, with
+per-edge amounts in pixels.
+
+For text nodes, `text.did_wrap` and the intrinsic width fields tell you when Skia actually broke
+the text into multiple lines inside the computed box.
+```
+
 ### `prepareTemplate(resources, template): PreparedTemplate`
 
 Bind resources to a compiled template using the default renderer.
@@ -183,6 +285,11 @@ The last argument on every render function accepts either:
 
 - `renderXmlSync(xml, params?, backend?)`
 - `renderXml(xml, params?, backend?)`
+
+### One-shot template file
+
+- `renderTemplateFileSync(path, params?, backend?, resolve?)`
+- `renderTemplateFile(path, params?, backend?, resolve?)`
 
 ### Compiled template
 
@@ -228,7 +335,7 @@ Session render params are layered on top of the session’s base params.
 const {
   createRenderer,
   createResourcesFromManifest,
-  compileTemplate,
+  createTemplateLoader,
   prepareTemplateWithRenderer,
   createTemplateSession,
   renderTemplateSession,
@@ -236,12 +343,8 @@ const {
 
 const renderer = createRenderer();
 const resources = createResourcesFromManifest("./assets/resources.json");
-const template = compileTemplate(`
-  <view width="320" height="180" background="#101820">
-    <text color="#ffffff">{{player.name}} {{stats.hp}}</text>
-    <image src="avatar" width="64" height="64" fit="cover" />
-  </view>
-`);
+const loader = createTemplateLoader(__filename);
+const template = loader.compileTemplateFile("./templates/card.xml");
 
 const prepared = prepareTemplateWithRenderer(renderer, resources, template);
 const session = createTemplateSession(prepared, {

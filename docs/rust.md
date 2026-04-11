@@ -10,16 +10,20 @@ Compile XML into a reusable template.
 
 ```rust
 let template = Template::compile(xml)?;
+let from_file = Template::compile_file("./templates/card.xml")?;
 ```
 
 Methods:
 
 - `Template::compile(source: &str) -> Result<Template>`
+- `Template::compile_file(path: impl AsRef<Path>) -> Result<Template>`
 - `Template::instantiate(&self, params: &TemplateParams) -> Result<Document>`
 
 `Template::instantiate` preserves explicit root bounds as `Document.width` and `Document.height`.
 If the root `<view>` omits either dimension, the corresponding field is `None` and the final size is computed by the layout pass.
 If a root dimension is provided, it must be an absolute length.
+The compiler accepts root-level `<preview>` nodes for editor metadata. These are validated during
+compile, ignored during `instantiate`, and may only appear as direct children of the root `<view>`.
 
 ### `TemplateParams`
 
@@ -34,6 +38,8 @@ Use dotted keys for nested data semantics such as `player.name` or `stats.hp`.
 ### `Renderer`
 
 Reusable render executor backed by a Rayon thread pool.
+
+This type is available when `taffy-canvas-core` is built with the default `renderer` feature.
 
 Methods:
 
@@ -84,6 +90,10 @@ Methods:
 - `base_params(&self) -> &TemplateParams`
 
 ## Resources
+
+The resource-provider and Skia-backed rendering APIs below are available with the default
+`renderer` feature. Parser, document, layout, and `FixedTextMeasurer` remain available with
+`default-features = false` for lighter consumers, but [`crates/taffy-canvas-wasm`](/Users/dj/Developer/taffy-canvas/crates/taffy-canvas-wasm) is intended to use the full renderer path for exact browser preview output.
 
 ### `MemoryAssetProvider`
 

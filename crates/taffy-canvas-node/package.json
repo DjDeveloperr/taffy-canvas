@@ -22,7 +22,8 @@
   "files": [
     "README.md",
     "index.js",
-    "index.d.ts"
+    "index.d.ts",
+    "schemas/taffy-canvas.xsd"
   ],
   "engines": {
     "node": ">=18"

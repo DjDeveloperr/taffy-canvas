@@ -4,12 +4,14 @@
   "license": "Apache-2.0",
   "workspaces": [
     "crates/taffy-canvas-node",
-    "crates/taffy-canvas-node/npm/*"
+    "crates/taffy-canvas-node/npm/*",
+    "packages/*"
   ],
   "scripts": {
     "build": "cargo build --workspace && npm run build:node",
     "build:rust": "cargo build --workspace",
     "build:node": "npm --workspace crates/taffy-canvas-node run build",
+    "build:wasm": "npm --workspace packages/taffy-canvas-web run build:wasm",
     "check": "cargo check --workspace --all-targets",
     "fmt": "cargo fmt --all",
     "test": "cargo test --workspace && npm run smoke",

@@ -28,11 +28,80 @@ export interface RendererConfig {
   idleMs?: number | null
 }
 
+export interface TemplateFileResolveOptions {
+  from?: string | URL | null
+}
+
+export interface TemplateLoader {
+  compileTemplateFile(path: string): CompiledTemplate
+  inspectTemplateFileLayoutSync(
+    path: string,
+    params?: TemplateParams | null
+  ): LayoutInspectionDocument
+  renderTemplateFileSync(
+    path: string,
+    params?: TemplateParams | null,
+    options?: RenderInput | null
+  ): Buffer
+  renderTemplateFile(
+    path: string,
+    params?: TemplateParams | null,
+    options?: RenderInput | null
+  ): Promise<Buffer>
+}
+
 export interface ResourceSummary {
   assets: number
   fonts: number
   decoded_images: number
   prepared_images: number
+}
+
+export interface LayoutInspectionBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface LayoutInspectionOverflow {
+  has_overflow: boolean
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+export interface LayoutInspectionText {
+  line_count: number
+  did_wrap: boolean
+  paragraph_width: number
+  paragraph_height: number
+  longest_line: number
+  min_intrinsic_width: number
+  max_intrinsic_width: number
+}
+
+export interface LayoutInspectionNode {
+  path: string
+  id: string | null
+  kind: 'view' | 'text' | 'image'
+  value: string | null
+  src: string | null
+  fragments: unknown[] | null
+  text: LayoutInspectionText | null
+  style: Record<string, unknown>
+  metadata: Record<string, string>
+  layout: LayoutInspectionBox
+  content_bounds: LayoutInspectionBox
+  overflow: LayoutInspectionOverflow
+  children: LayoutInspectionNode[]
+}
+
+export interface LayoutInspectionDocument {
+  width: number
+  height: number
+  root: LayoutInspectionNode
 }
 
 export function version(): string
@@ -56,6 +125,15 @@ export function loadResourceManifest(resources: Resources, path: string): void
 export function inspectResources(resources: Resources): ResourceSummary
 
 export function compileTemplate(xml: string): CompiledTemplate
+export function compileTemplateFile(path: string): CompiledTemplate
+export function inspectXmlLayoutSync(
+  xml: string,
+  params?: TemplateParams | null
+): LayoutInspectionDocument
+export function inspectCompiledLayoutSync(
+  template: CompiledTemplate,
+  params?: TemplateParams | null
+): LayoutInspectionDocument
 export function prepareTemplate(
   resources: Resources,
   template: CompiledTemplate
@@ -158,3 +236,27 @@ export function renderTemplateSession(
   params?: TemplateParams | null,
   options?: RenderInput | null
 ): Promise<Buffer>
+
+export function resolveTemplatePath(
+  path: string,
+  options?: TemplateFileResolveOptions | null
+): string
+export function createTemplateLoader(from: string | URL): TemplateLoader
+export function inspectTemplateFileLayoutSync(
+  path: string,
+  params?: TemplateParams | null,
+  resolve?: TemplateFileResolveOptions | null
+): LayoutInspectionDocument
+export function renderTemplateFileSync(
+  path: string,
+  params?: TemplateParams | null,
+  options?: RenderInput | null,
+  resolve?: TemplateFileResolveOptions | null
+): Buffer
+export function renderTemplateFile(
+  path: string,
+  params?: TemplateParams | null,
+  options?: RenderInput | null,
+  resolve?: TemplateFileResolveOptions | null
+): Promise<Buffer>
+export const schemaPath: string
