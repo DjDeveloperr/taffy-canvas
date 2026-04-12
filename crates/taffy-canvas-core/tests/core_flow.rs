@@ -6,14 +6,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use serde_json::json;
 use skia_safe::{Color as SkColor, EncodedImageFormat, FontMgr, FontStyle, Paint, Rect, surfaces};
 use taffy_canvas_core::{
     Color, EncodedImageFormat as RenderEncodedImageFormat, FileSystemResourceProvider,
-    FixedTextMeasurer, FontAsset, FontSlant, InlineFragment, LayoutNodeKind, LineHeightValue,
-    MemoryAssetProvider, NodeKind, PngCompression, RenderBackend, RenderBackendPreference,
-    RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer, StyleSpec, TaffyCanvasError,
-    Template, TemplateParams, TextDecorationStyleKind, TextMeasurer, WebpEncodingMode,
-    layout_document, render_template,
+    FixedTextMeasurer, FontAsset, FontSlant, InlineFragment, LayeredResourceProvider,
+    LayoutNodeKind, LineHeightValue, MemoryAssetProvider, NodeKind, PngCompression, RenderBackend,
+    RenderBackendPreference, RenderOptions, Renderer, ResourceProvider, SkiaTextMeasurer,
+    StyleSpec, TaffyCanvasError, Template, TemplateParams, TextDecorationStyleKind, TextMeasurer,
+    WebpEncodingMode, layout_document, render_template,
 };
 
 fn empty_assets() -> MemoryAssetProvider {
@@ -147,6 +148,39 @@ fn preview_nodes_are_accepted_and_ignored_by_rendering() {
 }
 
 #[test]
+fn preview_arrays_are_accepted_and_ignored_by_rendering() {
+    let template = Template::compile(
+        r##"
+        <view width="320" height="180" background="#112233">
+          <preview name="Default">
+            <object key="enemy">
+              <property key="status_visible" value="true" type="boolean" />
+              <array key="balls">
+                <item value="ball_filled" />
+                <item value="ball_empty" />
+              </array>
+            </object>
+          </preview>
+          <text color="#ffffff">Hello {{name}}</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("name", "Canvas");
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+
+    assert_eq!(document.root.children.len(), 1);
+    assert!(matches!(
+        document.root.children[0].kind,
+        NodeKind::Text { .. }
+    ));
+}
+
+#[test]
 fn preview_nodes_must_be_direct_children_of_root_view() {
     let error = Template::compile(
         r##"
@@ -165,6 +199,203 @@ fn preview_nodes_must_be_direct_children_of_root_view() {
         error
             .to_string()
             .contains("preview nodes are only allowed as direct children of the root view")
+    );
+}
+
+#[test]
+fn when_attributes_hide_and_show_nodes() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="40">
+          <text value="Always" />
+          <text when="show_label" value="Visible" />
+          <text when-not="hide_label" value="Also Visible" />
+          <text when="hide_label" value="Hidden" />
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("show_label", true);
+    params.insert("hide_label", false);
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    assert_eq!(document.root.children.len(), 3);
+    let NodeKind::Text { value, .. } = &document.root.children[1].kind else {
+        panic!("expected text node");
+    };
+    assert_eq!(value, "Visible");
+    let NodeKind::Text { value, .. } = &document.root.children[2].kind else {
+        panic!("expected text node");
+    };
+    assert_eq!(value, "Also Visible");
+}
+
+#[test]
+fn for_each_expands_array_items() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="80">
+          <for each="moves" as="move" index="i">
+            <text when="move.enabled" value="{{i}} {{move.name}}" />
+          </for>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert(
+        "moves",
+        json!([
+            { "name": "Flamethrower", "enabled": true },
+            { "name": "Roost", "enabled": false },
+            { "name": "Air Slash", "enabled": true }
+        ]),
+    );
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    assert_eq!(document.root.children.len(), 2);
+    let NodeKind::Text { value, .. } = &document.root.children[0].kind else {
+        panic!("expected text node");
+    };
+    assert_eq!(value, "0 Flamethrower");
+    let NodeKind::Text { value, .. } = &document.root.children[1].kind else {
+        panic!("expected text node");
+    };
+    assert_eq!(value, "2 Air Slash");
+}
+
+#[test]
+fn for_count_expands_numeric_ranges() {
+    let template = Template::compile(
+        r##"
+        <view width="120" height="80">
+          <for count="count" start="1" as="slot">
+            <text value="{{slot}}" />
+          </for>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("count", 3);
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    assert_eq!(document.root.children.len(), 3);
+    let values: Vec<String> = document
+        .root
+        .children
+        .iter()
+        .map(|child| match &child.kind {
+            NodeKind::Text { value, .. } => value.clone(),
+            other => panic!("expected text node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(values, vec!["1", "2", "3"]);
+}
+
+#[test]
+fn components_expand_with_explicit_bindings() {
+    let template = Template::compile(
+        r##"
+        <view width="160" height="40">
+          <component name="stat-line">
+            <text value="{{label}} {{value}}" />
+          </component>
+          <use component="stat-line">
+            <bind name="label" value="HP" />
+            <bind name="value" from="stats.hp" />
+          </use>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert("stats.hp", 99);
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    assert_eq!(document.root.children.len(), 1);
+    let NodeKind::Text { value, .. } = &document.root.children[0].kind else {
+        panic!("expected text node");
+    };
+    assert_eq!(value, "HP 99");
+}
+
+#[test]
+fn components_can_bind_loop_alias_objects() {
+    let template = Template::compile(
+        r##"
+        <view width="160" height="80">
+          <component name="move-line">
+            <text value="{{prefix}} {{move.name}}" />
+          </component>
+          <for each="moves" as="move">
+            <use component="move-line">
+              <bind name="prefix" value="Move" />
+              <bind name="move" from="move" />
+            </use>
+          </for>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+
+    let mut params = TemplateParams::new();
+    params.insert(
+        "moves",
+        json!([
+            { "name": "Flamethrower" },
+            { "name": "Air Slash" }
+        ]),
+    );
+
+    let document = template
+        .instantiate(&params)
+        .expect("document instantiates");
+    assert_eq!(document.root.children.len(), 2);
+    let values: Vec<String> = document
+        .root
+        .children
+        .iter()
+        .map(|child| match &child.kind {
+            NodeKind::Text { value, .. } => value.clone(),
+            other => panic!("expected text node, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(values, vec!["Move Flamethrower", "Move Air Slash"]);
+}
+
+#[test]
+fn components_must_be_direct_children_of_root_view() {
+    let error = Template::compile(
+        r##"
+        <view width="160" height="40">
+          <view>
+            <component name="bad">
+              <text value="Nope" />
+            </component>
+          </view>
+        </view>
+        "##,
+    )
+    .expect_err("nested component should be rejected");
+
+    assert!(
+        error
+            .to_string()
+            .contains("component nodes are only allowed as direct children of the root view")
     );
 }
 
@@ -2225,6 +2456,31 @@ fn memory_asset_provider_invalidates_decoded_images_when_asset_changes() {
     assert_eq!(assets.decoded_image_count(), 1);
     assert_ne!(first.unique_id(), second.unique_id());
     assert_eq!(assets.prepared_image_count(), 0);
+}
+
+#[test]
+fn layered_resource_provider_uses_override_and_base_caches_separately() {
+    let mut base = MemoryAssetProvider::default();
+    base.insert_asset("base-only", sample_image_png());
+
+    let mut overrides = MemoryAssetProvider::default();
+    overrides.insert_asset("dynamic", sample_solid_png(2, 1, 255, 0, 0));
+
+    let layered = LayeredResourceProvider::new(base.clone(), overrides.clone());
+
+    let dynamic_first = taffy_canvas_core::ResourceProvider::load_image(&layered, "dynamic")
+        .expect("dynamic image loads");
+    let dynamic_second = taffy_canvas_core::ResourceProvider::load_image(&layered, "dynamic")
+        .expect("dynamic image reuses override cache");
+    let base_first = taffy_canvas_core::ResourceProvider::load_image(&layered, "base-only")
+        .expect("base image loads");
+    let base_second = taffy_canvas_core::ResourceProvider::load_image(&layered, "base-only")
+        .expect("base image reuses base cache");
+
+    assert_eq!(overrides.decoded_image_count(), 1);
+    assert_eq!(base.decoded_image_count(), 1);
+    assert_eq!(dynamic_first.unique_id(), dynamic_second.unique_id());
+    assert_eq!(base_first.unique_id(), base_second.unique_id());
 }
 
 #[test]

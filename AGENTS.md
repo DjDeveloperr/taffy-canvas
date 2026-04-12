@@ -17,6 +17,8 @@ This repository is built around a few stable working patterns. Future coding age
 - Follow test-driven development. Add or update tests with feature work, especially for parser behavior, layout semantics, render semantics, and regressions.
 - Prefer focused, incremental commits that each leave the repo green.
 - Keep the XML parser specialized for this project. Do not turn it into a generic DOM layer.
+- Keep reusable XML fragments compile-time and explicit. Favor root-level `<component>` plus
+  explicit `<use>/<bind>` over slots, imports, or expression-heavy templating.
 - Keep render behavior deterministic. When visuals change intentionally, update or add golden tests.
 - Keep the Node layer thin. If a feature needs real semantics, add it in Rust first.
 
@@ -59,6 +61,8 @@ This repository is built around a few stable working patterns. Future coding age
 ## Editing Guidance
 
 - Preserve the existing declarative XML model.
+- Prefer structural XML primitives like `when`, `when-not`, and `<for>` over duplicating nodes or
+  driving visibility through stringly `display="none"` / `display="flex"` params when simplifying templates.
 - Prefer adding styles that map cleanly to Taffy or are cheap and deterministic to render in Skia.
 - Avoid broad refactors unless they clearly improve correctness, performance, or API clarity.
 - Do not expand the README into an internal changelog or roadmap dump. Keep that detail in docs, tests, and code.

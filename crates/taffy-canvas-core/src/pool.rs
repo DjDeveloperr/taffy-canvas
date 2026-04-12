@@ -10,7 +10,7 @@ use rayon::ThreadPoolBuilder;
 
 use crate::{
     Result,
-    asset::ResourceProvider,
+    asset::{LayeredResourceProvider, ResourceProvider},
     error::TaffyCanvasError,
     render::{CpuRenderScratch, RenderOptions, RenderOutput, render_document_with_scratch},
     template::{Template, TemplateParams},
@@ -206,6 +206,24 @@ where
         &self.renderer
     }
 
+    pub fn render_with_resources<O>(
+        &self,
+        resources: O,
+        params: &TemplateParams,
+        options: RenderOptions,
+    ) -> Result<RenderOutput>
+    where
+        R: Send + Sync + 'static,
+        O: ResourceProvider + Clone + Send + Sync + 'static,
+    {
+        self.renderer.render_owned(
+            self.template.clone(),
+            params.clone(),
+            LayeredResourceProvider::new(self.resources.clone(), resources),
+            options,
+        )
+    }
+
     pub fn template(&self) -> &Template {
         self.template.as_ref()
     }
@@ -230,17 +248,27 @@ where
     where
         R: Send + Sync + 'static,
     {
-        let mut params = self.base_params.clone();
-        params.extend(
-            overrides
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone())),
-        );
+        let params = self.base_params.merged(overrides);
         self.prepared.render(&params, options)
     }
 
     pub fn prepared(&self) -> &PreparedTemplate<R> {
         &self.prepared
+    }
+
+    pub fn render_with_resources<O>(
+        &self,
+        resources: O,
+        overrides: &TemplateParams,
+        options: RenderOptions,
+    ) -> Result<RenderOutput>
+    where
+        R: Send + Sync + 'static,
+        O: ResourceProvider + Clone + Send + Sync + 'static,
+    {
+        let params = self.base_params.merged(overrides);
+        self.prepared
+            .render_with_resources(resources, &params, options)
     }
 
     pub fn base_params(&self) -> &TemplateParams {

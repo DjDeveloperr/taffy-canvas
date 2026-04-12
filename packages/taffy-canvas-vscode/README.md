@@ -13,6 +13,7 @@ Current behavior:
 - reloads automatically while editing
 - reads root-level `<preview>` presets from the XML file and lets you switch between them
 - merges the selected preset over `taffyCanvas.preview.params`
+- understands typed preview values plus preview arrays via `<property type="...">`, `<array>`, and `<item>`
 - auto-detects `resources.json` or `taffy.resources.json` next to the template, or uses `taffyCanvas.preview.resourceManifest`
 
 The packaged extension vendors the sibling `taffy-canvas-web` runtime into its own `web/` folder before packaging.

@@ -51,7 +51,7 @@ assert.equal(summary.assets, 1)
 const templatePath = path.join(tempDir, 'card.xml')
 fs.writeFileSync(
   templatePath,
-  '<view width="18" height="18" background="#102030"><preview name="Default"><object key="player"><property key="name" value="Canvas" /></object><object key="stats"><property key="hp" value="99" /></object></preview><text color="#ffffff">{{player.name}} {{stats.hp}}</text></view>'
+  '<view width="18" height="18" background="#102030"><preview name="Default"><object key="player"><property key="name" value="Canvas" /></object><object key="stats"><property key="hp" value="99" /></object><object key="enemy"><property key="statusVisible" value="true" type="boolean" /><array key="balls"><item value="ball_filled" /><item value="ball_empty" /></array></object></preview><text color="#ffffff">{{player.name}} {{stats.hp}}</text></view>'
 )
 const loader = binding.createTemplateLoader(templatePath)
 const fileTemplate = loader.compileTemplateFile('./card.xml')
@@ -70,6 +70,29 @@ assert.ok(inspected.root.overflow.right > 0)
 assert.equal(inspected.root.children[0].overflow.has_overflow, false)
 assert.equal(inspected.root.children[0].text.did_wrap, false)
 
+const loopInspection = binding.inspectXmlLayoutSync(
+  '<view width="40" height="12"><for each="moves" as="move" index="i"><text when="move.enabled" value="{{i}} {{move.name}}" /></for></view>',
+  {
+    moves: [
+      { name: 'One', enabled: true },
+      { name: 'Two', enabled: false },
+      { name: 'Three', enabled: true }
+    ]
+  }
+)
+assert.equal(loopInspection.root.children.length, 2)
+assert.equal(loopInspection.root.children[0].value, '0 One')
+assert.equal(loopInspection.root.children[1].value, '2 Three')
+
+const componentInspection = binding.inspectXmlLayoutSync(
+  '<view width="60" height="20"><component name="stat-line"><text value="{{label}} {{value}}" /></component><use component="stat-line"><bind name="label" value="HP" /><bind name="value" from="stats.hp" /></use></view>',
+  {
+    stats: { hp: 99 }
+  }
+)
+assert.equal(componentInspection.root.children.length, 1)
+assert.equal(componentInspection.root.children[0].value, 'HP 99')
+
 const nestedTemplate = binding.compileTemplate(
   '<view width="18" height="18" background="#102030"><image src="swatch" width="8" height="8" position="absolute" left="5" top="1" fit="fill" /><text color="#ffffff">{{player.name}} {{stats.hp}}</text></view>'
 )
@@ -81,6 +104,31 @@ const session = binding.createTemplateSession(nestedPrepared, {
 const sessionPng = binding.renderTemplateSessionSync(session, { stats: { hp: 99 } }, 'cpu')
 assert.ok(Buffer.isBuffer(sessionPng))
 assert.ok(sessionPng.length > 0)
+
+const dynamicResources = binding.createResources()
+binding.addResourceAsset(dynamicResources, 'swatch', png)
+const dynamicPreparedTemplate = binding.compileTemplate(
+  '<view width="8" height="8" background="#000000"><image src="swatch" width="8" height="8" fit="fill" /></view>'
+)
+const dynamicPrepared = binding.prepareTemplate(binding.createResources(), dynamicPreparedTemplate)
+const dynamicPreparedPng = binding.renderPreparedWithResourcesSync(
+  dynamicPrepared,
+  dynamicResources,
+  {},
+  'cpu'
+)
+assert.ok(Buffer.isBuffer(dynamicPreparedPng))
+assert.ok(dynamicPreparedPng.length > 0)
+
+const dynamicSession = binding.createTemplateSession(dynamicPrepared)
+const dynamicSessionPng = binding.renderTemplateSessionWithResourcesSync(
+  dynamicSession,
+  dynamicResources,
+  {},
+  'cpu'
+)
+assert.ok(Buffer.isBuffer(dynamicSessionPng))
+assert.ok(dynamicSessionPng.length > 0)
 
 const filePng = loader.renderTemplateFileSync('./card.xml', {
   player: { name: 'Canvas' },

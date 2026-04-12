@@ -166,42 +166,9 @@ fn parse_params(json: &str) -> Result<TemplateParams, String> {
     }
 
     let value: serde_json::Value = serde_json::from_str(json).map_err(|error| error.to_string())?;
-    let mut params = TemplateParams::new();
     match value {
-        serde_json::Value::Object(object) => {
-            for (key, value) in object {
-                flatten_param_value(&mut params, key, &value);
-            }
-            Ok(params)
-        }
+        serde_json::Value::Object(object) => Ok(TemplateParams::from_object(object)),
         other => Err(format!("params must be a plain object, got {other}")),
-    }
-}
-
-fn flatten_param_value(params: &mut TemplateParams, path: String, value: &serde_json::Value) {
-    match value {
-        serde_json::Value::String(text) => {
-            params.insert(path, text.clone());
-        }
-        serde_json::Value::Number(number) => {
-            params.insert(path, number.to_string());
-        }
-        serde_json::Value::Bool(boolean) => {
-            params.insert(path, boolean.to_string());
-        }
-        serde_json::Value::Null => {
-            params.insert(path, String::new());
-        }
-        serde_json::Value::Object(object) => {
-            for (key, value) in object {
-                flatten_param_value(params, format!("{path}.{key}"), value);
-            }
-        }
-        serde_json::Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                flatten_param_value(params, format!("{path}.{index}"), item);
-            }
-        }
     }
 }
 

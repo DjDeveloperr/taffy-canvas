@@ -28,6 +28,7 @@ The goal is to describe an image once, bind data into it quickly, and render it 
 
 - XML templates with `view`, `text`, and `image` nodes
 - Template parameter substitution with `{{name}}` and dotted keys like `{{player.hp}}`
+- Structural XML helpers: `when`, `when-not`, `<for>`, and root-level `<component>` / `<use>`
 - Rich inline text inside `text`:
   - `<span>`, `<a>`, `<strong>`, `<em>`, `<u>`, `<s>`, `<sup>`, `<sub>`, `<small>`, `<mark>`, `<br />`
   - inline images using Skia paragraph placeholders
@@ -49,6 +50,7 @@ The goal is to describe an image once, bind data into it quickly, and render it 
   - reusable resource handles
   - prepared templates
   - template sessions for base params plus per-render overrides
+  - per-render dynamic resource layering on top of prepared/session base resources
   - decoded and prepared image caches
 - Tooling:
   - XSD schema for XML autocomplete and external linting
@@ -102,6 +104,7 @@ Rules:
 - Root `width` and `height` are optional. When omitted, the root view auto-sizes from layout flow.
 - Root `width` and `height` must be absolute lengths when provided.
 - `<preview>` is optional editor-only metadata and may only appear as a direct child of the root `<view>`.
+- `<component>` is optional reusable metadata and may only appear as a direct child of the root `<view>`.
 - `<preview>` may contain `<property key="..." value="..."/>` and nested `<object key="...">...</object>` entries.
 - `image` requires `src`.
 - Inline `image` requires explicit `width` and `height`.

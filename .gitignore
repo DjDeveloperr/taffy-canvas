@@ -10,3 +10,10 @@ tmp-status-*.png
 *.so
 *.dll
 *.node
+.DS_Store
+*.log
+*.tsbuildinfo
+*.zip
+*.tar.gz
+*.tgz
+*.bak

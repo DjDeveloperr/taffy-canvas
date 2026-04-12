@@ -1,3 +1,5 @@
+import { renderPngBase64WithHeap } from './runtime-bridge.js'
+
 const DEFAULT_MODULE_URL = new URL('./dist/taffy_canvas_wasm.js', import.meta.url).href
 
 let cachedModuleUrl = null
@@ -26,18 +28,11 @@ async function renderTemplateToPngBase64({
 }) {
   const module = await loadRendererModule(moduleUrl)
   const encodedResources = await encodeResources(resources)
-  const ok = module.ccall(
-    'render_png',
-    'number',
-    ['string', 'string', 'string'],
-    [xml, JSON.stringify(params ?? {}), JSON.stringify(encodedResources)]
-  )
-
-  if (!ok) {
-    throw new Error(module.ccall('last_error_message', 'string', [], []))
-  }
-
-  return module.ccall('last_output_base64', 'string', [], [])
+  return renderPngBase64WithHeap(module, {
+    xml,
+    paramsJson: JSON.stringify(params ?? {}),
+    resourcesJson: JSON.stringify(encodedResources)
+  })
 }
 
 export async function renderTemplatePreview({

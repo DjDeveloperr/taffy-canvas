@@ -241,7 +241,7 @@ function previewObjectValue(element) {
       if (!key) {
         continue
       }
-      output[key] = child.getAttribute('value') ?? ''
+      output[key] = previewScalarValue(child)
       continue
     }
 
@@ -251,9 +251,49 @@ function previewObjectValue(element) {
         continue
       }
       output[key] = previewObjectValue(child)
+      continue
+    }
+
+    if (child.tagName === 'array') {
+      const key = child.getAttribute('key')
+      if (!key) {
+        continue
+      }
+      output[key] = previewArrayValue(child)
     }
   }
   return output
+}
+
+function previewArrayValue(element) {
+  return Array.from(element.children)
+    .filter((child) => child.tagName === 'item')
+    .map((child) => previewItemValue(child))
+}
+
+function previewItemValue(element) {
+  if (element.hasAttribute('value')) {
+    return previewScalarValue(element)
+  }
+
+  return previewObjectValue(element)
+}
+
+function previewScalarValue(element) {
+  const type = element.getAttribute('type') || 'string'
+  const raw = element.getAttribute('value') ?? ''
+
+  if (type === 'boolean') {
+    return raw.trim().toLowerCase() === 'true'
+  }
+  if (type === 'number') {
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  if (type === 'null') {
+    return null
+  }
+  return raw
 }
 
 function mergeObjects(base, override) {

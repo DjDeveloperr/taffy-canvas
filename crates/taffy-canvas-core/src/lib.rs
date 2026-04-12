@@ -16,8 +16,8 @@ mod text;
 
 #[cfg(feature = "renderer")]
 pub use asset::{
-    AssetProvider, FileSystemResourceProvider, FontAsset, MemoryAssetProvider, PreparedImageKey,
-    PreparedImageRequest, ResourceProvider,
+    AssetProvider, FileSystemResourceProvider, FontAsset, LayeredResourceProvider,
+    MemoryAssetProvider, PreparedImageKey, PreparedImageRequest, ResourceProvider,
 };
 pub use document::{
     Color, DisplayKind, Document, FontSlant, FontStyleSpec, ImageFit, InlineFragment,
@@ -36,6 +36,6 @@ pub use render::{
     EncodedImageFormat, OutputSize, PngCompression, RenderBackend, RenderBackendPreference,
     RenderOptions, RenderOutput, WebpEncodingMode, render_document, render_template,
 };
-pub use template::{Template, TemplateParams};
+pub use template::{Template, TemplateParams, TemplateValue};
 #[cfg(feature = "renderer")]
 pub use text::SkiaTextMeasurer;

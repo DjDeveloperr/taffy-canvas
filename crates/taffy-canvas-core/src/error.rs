@@ -12,6 +12,8 @@ pub enum TaffyCanvasError {
     InvalidAttribute { attribute: String, message: String },
     #[error("missing template parameter `{0}`")]
     MissingTemplateParam(String),
+    #[error("template parameter `{0}` cannot be rendered as text")]
+    TemplateParamNotPrimitive(String),
     #[error("asset `{0}` not found")]
     MissingAsset(String),
     #[error("io error: {0}")]

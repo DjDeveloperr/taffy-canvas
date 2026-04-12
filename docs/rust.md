@@ -24,16 +24,61 @@ If the root `<view>` omits either dimension, the corresponding field is `None` a
 If a root dimension is provided, it must be an absolute length.
 The compiler accepts root-level `<preview>` nodes for editor metadata. These are validated during
 compile, ignored during `instantiate`, and may only appear as direct children of the root `<view>`.
+Preview metadata also supports typed `<property>` values and `<array>` / `<item>` collections for
+editor tooling.
 
 ### `TemplateParams`
 
-Type alias:
+Structured JSON-like template data.
 
 ```rust
-type TemplateParams = BTreeMap<String, String>;
+let mut params = TemplateParams::new();
+params.insert("player.name", "Canvas");
+params.insert("player.hp", 99);
+params.insert("moves.0.name", "Flamethrower");
+params.insert("moves.0.enabled", true);
 ```
 
-Use dotted keys for nested data semantics such as `player.name` or `stats.hp`.
+Templates resolve dotted paths such as `player.name` and `moves.0.name`.
+
+### `TemplateValue`
+
+Alias:
+
+```rust
+type TemplateValue = serde_json::Value;
+```
+
+### XML Control Flow
+
+Use `when` / `when-not` to conditionally include render nodes and `<for>` to repeat nodes from an
+array param or a numeric count.
+
+```xml
+<for each="moves" as="move" index="i">
+  <text when="move.enabled" value="{{i}} {{move.name}}" />
+</for>
+```
+
+### XML Components
+
+Use root-level `<component>` definitions plus `<use>` with explicit `<bind>` children to reuse
+render fragments without adding a general expression language.
+
+```xml
+<component name="move-row">
+  <text value="{{label}} {{move.name}}" />
+</component>
+
+<use component="move-row">
+  <bind name="label" value="Move" />
+  <bind name="move" from="moves.0" />
+</use>
+```
+
+- `<component>` nodes are only valid as direct children of the root `<view>`
+- `<bind from="...">` passes structured values from params or loop aliases
+- `<bind value="..." type="number|boolean|null|string">` passes typed literals
 
 ### `Renderer`
 
@@ -74,6 +119,7 @@ Compile-once and bind-resources-once handle.
 Methods:
 
 - `render(&self, params: &TemplateParams, options: RenderOptions) -> Result<RenderOutput>`
+- `render_with_resources<O>(&self, resources: O, params: &TemplateParams, options: RenderOptions) -> Result<RenderOutput>`
 - `renderer(&self) -> &Renderer`
 - `template(&self) -> &Template`
 - `resources(&self) -> &R`
@@ -86,6 +132,7 @@ Prepared template plus reusable base params.
 Methods:
 
 - `render(&self, overrides: &TemplateParams, options: RenderOptions) -> Result<RenderOutput>`
+- `render_with_resources<O>(&self, resources: O, overrides: &TemplateParams, options: RenderOptions) -> Result<RenderOutput>`
 - `prepared(&self) -> &PreparedTemplate<R>`
 - `base_params(&self) -> &TemplateParams`
 
@@ -108,6 +155,17 @@ Methods:
 - `font_count(&self) -> usize`
 - `decoded_image_count(&self) -> usize`
 - `prepared_image_count(&self) -> usize`
+
+### `LayeredResourceProvider<Base, Overrides>`
+
+Resource provider that resolves keys from an override provider first and falls back to a base
+provider without merging their caches.
+
+Methods:
+
+- `LayeredResourceProvider::new(base: Base, overrides: Overrides) -> Self`
+- `base(&self) -> &Base`
+- `overrides(&self) -> &Overrides`
 
 Traits:
 

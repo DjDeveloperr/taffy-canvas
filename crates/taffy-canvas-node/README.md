@@ -28,11 +28,13 @@ The Node binding supports:
 - template session handles via `createTemplateSession()` and `extendTemplateSession()`
 - repeated async renders through `renderPrepared()`
 - repeated async renders with nested-data overrides through `renderTemplateSession()`
-- the same XML renderer surface as Rust, including inline text spans and links, semantic inline tags, inline images, `<br />` line breaks, fragment backgrounds, `text-shadow`, axis-specific overflow clipping, named grid areas, and grid layouts with repeat/minmax/fit-content tracks
+- per-render dynamic resource layering through `renderPreparedWithResources()` and `renderTemplateSessionWithResources()`
+- the same XML renderer surface as Rust, including `when` / `when-not`, `<for>` loops, inline text spans and links, semantic inline tags, inline images, `<br />` line breaks, fragment backgrounds, `text-shadow`, axis-specific overflow clipping, named grid areas, and grid layouts with repeat/minmax/fit-content tracks
 - optional backend selection on every render call: `"auto"`, `"cpu"`, or `"gpu"`
 - packaged XML schema at `schemas/taffy-canvas.xsd` with exported `schemaPath`
 
-Nested JS objects and arrays are flattened into dotted template keys, so `{{player.name}}` and `{{inventory.0.label}}` work without manually flattening params first.
+Nested JS objects and arrays stay structured, and templates resolve dotted paths such as
+`{{player.name}}` and `{{inventory.0.label}}` without manual flattening.
 
 Backend behavior:
 

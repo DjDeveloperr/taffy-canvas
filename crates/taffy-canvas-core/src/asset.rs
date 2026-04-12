@@ -22,6 +22,17 @@ pub trait ResourceProvider: AssetProvider {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct LayeredResourceProvider<Base, Overrides>
+where
+    Base: ResourceProvider + Clone,
+    Overrides: ResourceProvider + Clone,
+{
+    base: Base,
+    overrides: Overrides,
+    fonts: Vec<FontAsset>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PreparedImageKey {
     pub width: u32,
@@ -50,6 +61,70 @@ impl FontAsset {
         Self {
             family: family.into(),
             bytes,
+        }
+    }
+}
+
+impl<Base, Overrides> LayeredResourceProvider<Base, Overrides>
+where
+    Base: ResourceProvider + Clone,
+    Overrides: ResourceProvider + Clone,
+{
+    pub fn new(base: Base, overrides: Overrides) -> Self {
+        let mut fonts = base.fonts().to_vec();
+        fonts.extend_from_slice(overrides.fonts());
+        Self {
+            base,
+            overrides,
+            fonts,
+        }
+    }
+
+    pub fn base(&self) -> &Base {
+        &self.base
+    }
+
+    pub fn overrides(&self) -> &Overrides {
+        &self.overrides
+    }
+}
+
+impl<Base, Overrides> AssetProvider for LayeredResourceProvider<Base, Overrides>
+where
+    Base: ResourceProvider + Clone,
+    Overrides: ResourceProvider + Clone,
+{
+    fn load(&self, key: &str) -> Result<Vec<u8>> {
+        match self.overrides.load(key) {
+            Ok(bytes) => Ok(bytes),
+            Err(TaffyCanvasError::MissingAsset(_)) => self.base.load(key),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+impl<Base, Overrides> ResourceProvider for LayeredResourceProvider<Base, Overrides>
+where
+    Base: ResourceProvider + Clone,
+    Overrides: ResourceProvider + Clone,
+{
+    fn fonts(&self) -> &[FontAsset] {
+        &self.fonts
+    }
+
+    fn load_image(&self, key: &str) -> Result<Image> {
+        match self.overrides.load_image(key) {
+            Ok(image) => Ok(image),
+            Err(TaffyCanvasError::MissingAsset(_)) => self.base.load_image(key),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn load_prepared_image(&self, request: &PreparedImageRequest<'_>) -> Result<Image> {
+        match self.overrides.load_prepared_image(request) {
+            Ok(image) => Ok(image),
+            Err(TaffyCanvasError::MissingAsset(_)) => self.base.load_prepared_image(request),
+            Err(error) => Err(error),
         }
     }
 }

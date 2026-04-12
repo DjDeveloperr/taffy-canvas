@@ -7,6 +7,8 @@ It also ships [`schemas/taffy-canvas.xsd`](/Users/dj/Developer/taffy-canvas/crat
 
 `<preview>` XML nodes are accepted by the compiler as editor metadata. They are ignored at render time.
 They may only appear as direct children of the root `<view>`.
+Preview presets support nested `<object>` values, typed `<property>` values, and `<array>` / `<item>`
+collections for editor-side sample data.
 
 ## Value Types
 
@@ -21,10 +23,54 @@ type TemplateParamValue =
 type TemplateParams = Record<string, TemplateParamValue>
 ```
 
-Nested objects and arrays are flattened automatically:
+Nested objects and arrays remain structured. Templates resolve dotted paths such as
+`{{player.name}}` and `{{inventory.0.label}}`, and Rust callers may still populate the same paths
+incrementally through `TemplateParams.insert(...)`.
 
-- `{ player: { name: "Canvas" } }` becomes `player.name`
-- `{ inventory: [{ label: "Potion" }] }` becomes `inventory.0.label`
+## XML Control Flow
+
+### `when` / `when-not`
+
+Any render node can be conditionally included:
+
+```xml
+<image when="enemy.statusVisible" src="{{enemy.status}}" width="49" height="16" fit="fill" />
+<view when-not="player.fainted">...</view>
+```
+
+### `<for>`
+
+Repeat children from an array param or numeric count:
+
+```xml
+<for each="moves" as="move" index="i">
+  <text when="move.enabled" value="{{i}} {{move.name}}" />
+</for>
+
+<for count="partySize" start="1" as="slot">
+  <text value="{{slot}}" />
+</for>
+```
+
+### `<component>` / `<use>`
+
+Define reusable root-level fragments and instantiate them with explicit bindings:
+
+```xml
+<component name="move-row">
+  <text value="{{label}} {{move.name}}" />
+</component>
+
+<use component="move-row">
+  <bind name="label" value="Move" />
+  <bind name="move" from="moves.0" />
+</use>
+```
+
+- `<component>` nodes are only valid as direct children of the root `<view>`
+- `<use>` expands component children before layout/render
+- `<bind from="...">` passes structured values from params or loop aliases
+- `<bind value="..." type="number|boolean|null|string">` passes typed literals
 
 ### `RenderBackend`
 
@@ -262,6 +308,9 @@ Bind resources to a compiled template using the default renderer.
 
 Bind resources to a compiled template using an explicit renderer.
 
+Prepared handles keep their base resources bound, but can also render with per-call resource
+overrides layered on top.
+
 ## Template Session APIs
 
 ### `createTemplateSession(prepared, baseParams?): TemplateSession`
@@ -315,13 +364,19 @@ The last argument on every render function accepts either:
 
 - `renderPreparedSync(prepared, params?, backend?)`
 - `renderPrepared(prepared, params?, backend?)`
+- `renderPreparedWithResourcesSync(prepared, resources, params?, backend?)`
+- `renderPreparedWithResources(prepared, resources, params?, backend?)`
 
 ### Template session
 
 - `renderTemplateSessionSync(session, params?, backend?)`
 - `renderTemplateSession(session, params?, backend?)`
+- `renderTemplateSessionWithResourcesSync(session, resources, params?, backend?)`
+- `renderTemplateSessionWithResources(session, resources, params?, backend?)`
 
 Session render params are layered on top of the session’s base params.
+When you use the `...WithResources` variants, the extra resource handle is layered on top of the
+prepared/session base resources for that render only.
 
 ## Backend Behavior
 
@@ -360,6 +415,9 @@ const image = await renderTemplateSession(session, { stats: { hp: 99 } }, {
   webpQuality: 85,
 });
 ```
+
+For dynamic battle sprites or similar runtime assets, keep long-lived base HUD resources in the
+prepared handle and pass a second `resources` handle to the `...WithResources` render calls.
 
 ## XML Surface
 

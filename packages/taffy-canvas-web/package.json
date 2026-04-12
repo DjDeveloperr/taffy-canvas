@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:wasm": "node ./scripts/build-emscripten.mjs"
+    "build:wasm": "node ./scripts/build-emscripten.mjs",
+    "test": "node --test ./runtime-bridge.test.mjs"
   },
   "exports": {
     ".": "./index.js"

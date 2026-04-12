@@ -14,9 +14,10 @@ use napi_derive::napi;
 use serde::Serialize;
 use serde_json::Value;
 use taffy_canvas_core::{
-    EncodedImageFormat, LayoutBox, LayoutNode, LayoutNodeKind, MemoryAssetProvider, Node,
-    OutputSize, RenderBackendPreference, RenderOptions, Renderer, RendererConfig, RendererThreads,
-    SkiaTextMeasurer, StyleSpec, Template, TemplateParams, WebpEncodingMode, layout_document,
+    EncodedImageFormat, LayeredResourceProvider, LayoutBox, LayoutNode, LayoutNodeKind,
+    MemoryAssetProvider, Node, OutputSize, RenderBackendPreference, RenderOptions, Renderer,
+    RendererConfig, RendererThreads, SkiaTextMeasurer, StyleSpec, Template, TemplateParams,
+    WebpEncodingMode, layout_document,
 };
 
 static DEFAULT_RENDERER: OnceLock<Renderer> = OnceLock::new();
@@ -260,7 +261,8 @@ pub fn extend_template_session(
     params: Option<Value>,
 ) -> Result<External<TemplateSessionHandle>> {
     let mut base_params = session.base_params.clone();
-    base_params.extend(normalize_params(params)?);
+    let overrides = normalize_params(params)?;
+    base_params.merge(&overrides);
     Ok(External::new(TemplateSessionHandle {
         prepared: session.prepared.clone(),
         base_params,
@@ -488,6 +490,23 @@ pub fn render_prepared_sync(
 }
 
 #[napi]
+pub fn render_prepared_with_resources_sync(
+    prepared: &External<PreparedTemplateHandle>,
+    resources: &External<MemoryAssetProvider>,
+    params: Option<Value>,
+    options: Option<Either<String, RenderConfig>>,
+) -> Result<Buffer> {
+    render_with_template(
+        &prepared.renderer,
+        prepared.template.clone(),
+        normalize_params(params)?,
+        LayeredResourceProvider::new(prepared.resources.clone(), resources.as_ref().clone()),
+        options,
+    )
+    .map(Buffer::from)
+}
+
+#[napi]
 pub async fn render_prepared(
     prepared: &External<PreparedTemplateHandle>,
     params: Option<Value>,
@@ -512,6 +531,32 @@ pub async fn render_prepared(
 }
 
 #[napi]
+pub async fn render_prepared_with_resources(
+    prepared: &External<PreparedTemplateHandle>,
+    resources: &External<MemoryAssetProvider>,
+    params: Option<Value>,
+    options: Option<Either<String, RenderConfig>>,
+) -> Result<Buffer> {
+    let prepared = prepared.as_ref().clone();
+    let resources = resources.as_ref().clone();
+    let params = normalize_params(params)?;
+
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        render_with_template(
+            &prepared.renderer,
+            prepared.template.clone(),
+            params,
+            LayeredResourceProvider::new(prepared.resources, resources),
+            options,
+        )
+    })
+    .await
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
+
+    Ok(Buffer::from(bytes))
+}
+
+#[napi]
 pub fn render_template_session_sync(
     session: &External<TemplateSessionHandle>,
     params: Option<Value>,
@@ -523,6 +568,27 @@ pub fn render_template_session_sync(
         session.prepared.template.clone(),
         merged,
         session.prepared.resources.clone(),
+        options,
+    )
+    .map(Buffer::from)
+}
+
+#[napi]
+pub fn render_template_session_with_resources_sync(
+    session: &External<TemplateSessionHandle>,
+    resources: &External<MemoryAssetProvider>,
+    params: Option<Value>,
+    options: Option<Either<String, RenderConfig>>,
+) -> Result<Buffer> {
+    let merged = merge_template_params(&session.base_params, normalize_params(params)?);
+    render_with_template(
+        &session.prepared.renderer,
+        session.prepared.template.clone(),
+        merged,
+        LayeredResourceProvider::new(
+            session.prepared.resources.clone(),
+            resources.as_ref().clone(),
+        ),
         options,
     )
     .map(Buffer::from)
@@ -552,13 +618,42 @@ pub async fn render_template_session(
     Ok(Buffer::from(bytes))
 }
 
-fn render_with_template(
+#[napi]
+pub async fn render_template_session_with_resources(
+    session: &External<TemplateSessionHandle>,
+    resources: &External<MemoryAssetProvider>,
+    params: Option<Value>,
+    options: Option<Either<String, RenderConfig>>,
+) -> Result<Buffer> {
+    let session = session.as_ref().clone();
+    let resources = resources.as_ref().clone();
+    let merged = merge_template_params(&session.base_params, normalize_params(params)?);
+
+    let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        render_with_template(
+            &session.prepared.renderer,
+            session.prepared.template.clone(),
+            merged,
+            LayeredResourceProvider::new(session.prepared.resources, resources),
+            options,
+        )
+    })
+    .await
+    .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))??;
+
+    Ok(Buffer::from(bytes))
+}
+
+fn render_with_template<R>(
     renderer: &Renderer,
     template: Arc<Template>,
     params: TemplateParams,
-    resources: MemoryAssetProvider,
+    resources: R,
     options: Option<Either<String, RenderConfig>>,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>>
+where
+    R: taffy_canvas_core::ResourceProvider + Clone + Send + Sync + 'static,
+{
     let options = parse_render_options(options)?;
     let output = renderer
         .render_owned(template, params, resources, options)
@@ -846,64 +941,17 @@ fn normalize_params(input: Option<Value>) -> Result<TemplateParams> {
     let Some(value) = input else {
         return Ok(TemplateParams::new());
     };
-    let mut params = TemplateParams::new();
-
     match value {
-        Value::Object(object) => {
-            for (key, value) in object {
-                flatten_param_value(&mut params, key, &value)?;
-            }
-        }
-        other => {
-            return Err(Error::new(
-                Status::InvalidArg,
-                format!("params must be a plain object, got {other}"),
-            ));
-        }
-    }
-
-    Ok(params)
-}
-
-fn flatten_param_value(params: &mut TemplateParams, path: String, value: &Value) -> Result<()> {
-    match value {
-        Value::String(text) => {
-            params.insert(path, text.clone());
-            Ok(())
-        }
-        Value::Number(number) => {
-            params.insert(path, number.to_string());
-            Ok(())
-        }
-        Value::Bool(boolean) => {
-            params.insert(path, boolean.to_string());
-            Ok(())
-        }
-        Value::Null => {
-            params.insert(path, String::new());
-            Ok(())
-        }
-        Value::Object(object) => {
-            for (key, value) in object {
-                let child_path = format!("{path}.{key}");
-                flatten_param_value(params, child_path, value)?;
-            }
-            Ok(())
-        }
-        Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
-                let child_path = format!("{path}.{index}");
-                flatten_param_value(params, child_path, item)?;
-            }
-            Ok(())
-        }
+        Value::Object(object) => Ok(TemplateParams::from_object(object)),
+        other => Err(Error::new(
+            Status::InvalidArg,
+            format!("params must be a plain object, got {other}"),
+        )),
     }
 }
 
 fn merge_template_params(base: &TemplateParams, overrides: TemplateParams) -> TemplateParams {
-    let mut merged = base.clone();
-    merged.extend(overrides);
-    merged
+    base.merged(&overrides)
 }
 
 fn load_manifest_into_resources(resources: &mut MemoryAssetProvider, path: &str) -> Result<()> {

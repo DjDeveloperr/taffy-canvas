@@ -178,8 +178,19 @@
     </xs:union>
   </xs:simpleType>
 
+  <xs:simpleType name="previewValueType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="string"/>
+      <xs:enumeration value="number"/>
+      <xs:enumeration value="boolean"/>
+      <xs:enumeration value="null"/>
+    </xs:restriction>
+  </xs:simpleType>
+
   <xs:attributeGroup name="sharedNodeAttrs">
     <xs:attribute name="id" type="stringOrTemplate"/>
+    <xs:attribute name="when" type="stringOrTemplate"/>
+    <xs:attribute name="when-not" type="stringOrTemplate"/>
     <xs:attribute name="width" type="lengthOrTemplate"/>
     <xs:attribute name="height" type="lengthOrTemplate"/>
     <xs:attribute name="min-width" type="lengthOrTemplate"/>
@@ -289,6 +300,9 @@
       <xs:element name="view" type="nestedViewType"/>
       <xs:element ref="text"/>
       <xs:element ref="image"/>
+      <xs:element ref="for"/>
+      <xs:element ref="use"/>
+      <xs:element ref="component"/>
       <xs:element ref="preview"/>
     </xs:choice>
   </xs:group>
@@ -298,6 +312,8 @@
       <xs:element name="view" type="nestedViewType"/>
       <xs:element ref="text"/>
       <xs:element ref="image"/>
+      <xs:element ref="for"/>
+      <xs:element ref="use"/>
     </xs:choice>
   </xs:group>
 
@@ -305,6 +321,13 @@
     <xs:choice>
       <xs:element ref="property"/>
       <xs:element ref="object"/>
+      <xs:element ref="array"/>
+    </xs:choice>
+  </xs:group>
+
+  <xs:group name="previewArrayChildren">
+    <xs:choice>
+      <xs:element ref="item"/>
     </xs:choice>
   </xs:group>
 
@@ -345,6 +368,38 @@
     <xs:attributeGroup ref="imageNodeAttrs"/>
   </xs:complexType>
 
+  <xs:complexType name="forType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="nestedChildren"/>
+    </xs:sequence>
+    <xs:attribute name="each" type="stringOrTemplate"/>
+    <xs:attribute name="count" type="stringOrTemplate"/>
+    <xs:attribute name="start" type="stringOrTemplate"/>
+    <xs:attribute name="as" type="xs:string" use="required"/>
+    <xs:attribute name="index" type="xs:string"/>
+  </xs:complexType>
+
+  <xs:complexType name="componentType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="nestedChildren"/>
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="useType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:element ref="bind"/>
+    </xs:sequence>
+    <xs:attribute name="component" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="bindType">
+    <xs:attribute name="name" type="xs:string" use="required"/>
+    <xs:attribute name="from" type="xs:string"/>
+    <xs:attribute name="value" type="xs:string"/>
+    <xs:attribute name="type" type="previewValueType"/>
+  </xs:complexType>
+
   <xs:complexType name="previewType">
     <xs:sequence minOccurs="0" maxOccurs="unbounded">
       <xs:group ref="previewChildren"/>
@@ -362,6 +417,22 @@
   <xs:complexType name="previewPropertyType">
     <xs:attribute name="key" type="xs:string" use="required"/>
     <xs:attribute name="value" type="xs:string" use="required"/>
+    <xs:attribute name="type" type="previewValueType"/>
+  </xs:complexType>
+
+  <xs:complexType name="previewArrayType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="previewArrayChildren"/>
+    </xs:sequence>
+    <xs:attribute name="key" type="xs:string" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="previewItemType">
+    <xs:sequence minOccurs="0" maxOccurs="unbounded">
+      <xs:group ref="previewChildren"/>
+    </xs:sequence>
+    <xs:attribute name="value" type="xs:string"/>
+    <xs:attribute name="type" type="previewValueType"/>
   </xs:complexType>
 
   <xs:complexType name="inlineTextType" mixed="true">
@@ -374,9 +445,15 @@
 
   <xs:element name="view" type="rootViewType"/>
   <xs:element name="text" type="inlineTextType"/>
+  <xs:element name="for" type="forType"/>
+  <xs:element name="component" type="componentType"/>
+  <xs:element name="use" type="useType"/>
+  <xs:element name="bind" type="bindType"/>
   <xs:element name="preview" type="previewType"/>
   <xs:element name="object" type="previewObjectType"/>
   <xs:element name="property" type="previewPropertyType"/>
+  <xs:element name="array" type="previewArrayType"/>
+  <xs:element name="item" type="previewItemType"/>
   <xs:element name="span" type="inlineTextType"/>
   <xs:element name="a" type="inlineTextType"/>
   <xs:element name="strong" type="inlineTextType"/>

@@ -15,6 +15,10 @@ run('npm', ['run', 'build:wasm'], workspaceDir)
 await rm(vendoredWebDir, { recursive: true, force: true })
 await mkdir(vendoredWebDir, { recursive: true })
 await cp(path.join(webPackageDir, 'index.js'), path.join(vendoredWebDir, 'index.js'))
+await cp(
+  path.join(webPackageDir, 'runtime-bridge.js'),
+  path.join(vendoredWebDir, 'runtime-bridge.js')
+)
 await cp(path.join(webPackageDir, 'dist'), path.join(vendoredWebDir, 'dist'), {
   recursive: true
 })
