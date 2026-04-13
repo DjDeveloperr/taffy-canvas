@@ -124,12 +124,12 @@ impl Renderer {
     ) -> Result<RenderOutput> {
         self.inner.pool.install(|| {
             let document = template.instantiate(params)?;
-            let measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
+            let mut measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
             CPU_RENDER_SCRATCH.with(|scratch| {
                 let mut scratch = scratch.borrow_mut();
                 render_document_with_scratch(
                     &document,
-                    &measurer,
+                    &mut measurer,
                     assets,
                     options,
                     Some(&mut scratch),
@@ -477,8 +477,8 @@ where
     R: ResourceProvider,
 {
     let document = template.instantiate(params)?;
-    let measurer = SkiaTextMeasurer::with_fonts(resources.fonts().to_vec());
-    render_document_with_scratch(&document, &measurer, resources, options, Some(scratch))
+    let mut measurer = SkiaTextMeasurer::with_fonts(resources.fonts().to_vec());
+    render_document_with_scratch(&document, &mut measurer, resources, options, Some(scratch))
 }
 
 fn default_thread_count() -> usize {

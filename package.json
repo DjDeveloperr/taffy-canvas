@@ -17,6 +17,7 @@
     "test": "cargo test --workspace && npm run smoke",
     "test:rust": "cargo test --workspace",
     "smoke": "npm --workspace crates/taffy-canvas-node run test:smoke",
+    "test:memory": "npm --workspace crates/taffy-canvas-node run test:memory",
     "bench": "cargo bench -p taffy-canvas-core --bench render -- --sample-size 10",
     "pack": "npm --workspace crates/taffy-canvas-node run pack:current",
     "sync:versions": "npm --workspace crates/taffy-canvas-node run sync:versions",

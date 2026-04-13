@@ -2399,6 +2399,42 @@ fn memory_asset_provider_reuses_prepared_images() {
 }
 
 #[test]
+fn memory_asset_provider_reuses_decoded_image_for_exact_size_prepared_image() {
+    let mut assets = MemoryAssetProvider::default();
+    assets.insert_asset("swatch", sample_image_png());
+
+    let decoded =
+        taffy_canvas_core::ResourceProvider::load_image(&assets, "swatch").expect("decoded image");
+    let prepared = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 2,
+            height: 1,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
+        },
+    )
+    .expect("exact-size prepared image");
+    let prepared_again = taffy_canvas_core::ResourceProvider::load_prepared_image(
+        &assets,
+        &taffy_canvas_core::PreparedImageRequest {
+            key: "swatch",
+            width: 2,
+            height: 1,
+            fit: taffy_canvas_core::ImageFit::Cover,
+            radius: 0.0,
+        },
+    )
+    .expect("exact-size prepared image reused");
+
+    assert_eq!(assets.decoded_image_count(), 1);
+    assert_eq!(assets.prepared_image_count(), 1);
+    assert_eq!(decoded.unique_id(), prepared.unique_id());
+    assert_eq!(prepared.unique_id(), prepared_again.unique_id());
+}
+
+#[test]
 fn memory_asset_provider_distinguishes_prepared_images_by_radius() {
     let mut assets = MemoryAssetProvider::default();
     assets.insert_asset("swatch", sample_image_png());
@@ -2481,6 +2517,83 @@ fn layered_resource_provider_uses_override_and_base_caches_separately() {
     assert_eq!(base.decoded_image_count(), 1);
     assert_eq!(dynamic_first.unique_id(), dynamic_second.unique_id());
     assert_eq!(base_first.unique_id(), base_second.unique_id());
+}
+
+#[test]
+fn memory_asset_provider_clone_is_copy_on_write() {
+    let mut original = MemoryAssetProvider::default();
+    original.insert_asset("swatch", sample_image_png());
+    original.register_font("Display", vec![1, 2, 3, 4]);
+
+    let mut cloned = original.clone();
+    cloned.insert_asset("swatch", sample_solid_png(2, 1, 0, 255, 0));
+    cloned.insert_asset("accent", sample_solid_png(2, 1, 255, 0, 0));
+    cloned.register_font("Mono", vec![9, 8, 7]);
+
+    let original_bytes =
+        taffy_canvas_core::AssetProvider::load(&original, "swatch").expect("original asset");
+    let cloned_bytes =
+        taffy_canvas_core::AssetProvider::load(&cloned, "swatch").expect("cloned asset");
+
+    assert_eq!(original.asset_count(), 1);
+    assert_eq!(cloned.asset_count(), 2);
+    assert_eq!(original.font_count(), 1);
+    assert_eq!(cloned.font_count(), 2);
+    assert_ne!(original_bytes, cloned_bytes);
+    assert!(taffy_canvas_core::AssetProvider::load(&original, "accent").is_err());
+    assert_eq!(original.fonts()[0].family, "Display");
+    assert_eq!(cloned.fonts()[1].family, "Mono");
+}
+
+#[test]
+fn skia_text_measurer_clears_paragraph_caches() {
+    let template = Template::compile(
+        r##"
+        <view width="240" height="80">
+          <text width="220" font-size="18">Battle HUD paragraph cache smoke test.</text>
+        </view>
+        "##,
+    )
+    .expect("template compiles");
+    let document = template
+        .instantiate(&TemplateParams::new())
+        .expect("document instantiates");
+    let measurer = SkiaTextMeasurer::default();
+
+    let _layout = layout_document(&document, &measurer).expect("layout succeeds");
+    assert!(
+        measurer.paragraph_cache_count() > 0,
+        "paragraph cache should populate after layout",
+    );
+
+    measurer.clear_caches();
+    assert_eq!(measurer.paragraph_cache_count(), 0);
+}
+
+#[test]
+fn skia_text_measurer_clears_custom_font_paragraph_caches() {
+    let typeface = FontMgr::new()
+        .legacy_make_typeface(Some("monospace"), FontStyle::default())
+        .or_else(|| FontMgr::new().legacy_make_typeface(Some("serif"), FontStyle::default()))
+        .expect("system font available");
+    let (bytes, _) = typeface.to_font_data().expect("font bytes");
+    let mut style = StyleSpec::default();
+    style.font.family = "TaffyCanvasCachedFont".to_string();
+    let measurer =
+        SkiaTextMeasurer::with_fonts(vec![FontAsset::new("TaffyCanvasCachedFont", bytes)]);
+
+    let _metrics = measurer.measure(
+        "Battle HUD custom font paragraph cache smoke test.",
+        &style,
+        Some(240.0),
+    );
+    assert!(
+        measurer.paragraph_cache_count() > 0,
+        "custom font paragraph cache should populate after measurement",
+    );
+
+    measurer.clear_caches();
+    assert_eq!(measurer.paragraph_cache_count(), 0);
 }
 
 #[test]

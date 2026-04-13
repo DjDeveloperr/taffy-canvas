@@ -5,7 +5,7 @@ export type TemplateParamValue =
   | { [key: string]: TemplateParamValue }
 export type TemplateParams = Record<string, TemplateParamValue>
 export type RenderBackend = 'auto' | 'cpu' | 'gpu'
-export type RenderOutputFormat = 'png' | 'webp'
+export type RenderOutputFormat = 'png' | 'webp' | 'raw'
 export type RenderOutputSize = 'fast' | 'balanced' | 'small'
 export type RenderWebpMode = 'lossless' | 'lossy'
 export interface RenderConfig {

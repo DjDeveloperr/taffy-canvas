@@ -173,4 +173,12 @@ assert.equal(lossyWebp.subarray(0, 4).toString('ascii'), 'RIFF')
 assert.equal(lossyWebp.subarray(8, 12).toString('ascii'), 'WEBP')
 assert.notEqual(lossyWebp.length, webp.length)
 
+const raw = binding.renderTemplateSessionSync(
+  session,
+  { stats: { hp: 99 } },
+  { backend: 'cpu', outputFormat: 'raw' }
+)
+assert.ok(Buffer.isBuffer(raw))
+assert.equal(raw.length, 18 * 18 * 4)
+
 console.log('Node smoke test passed')

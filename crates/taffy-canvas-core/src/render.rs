@@ -139,7 +139,7 @@ pub struct RenderOutput {
 
 pub fn render_document(
     document: &crate::document::Document,
-    measurer: &SkiaTextMeasurer,
+    measurer: &mut SkiaTextMeasurer,
     assets: &dyn ResourceProvider,
     options: RenderOptions,
 ) -> Result<RenderOutput> {
@@ -148,13 +148,13 @@ pub fn render_document(
 
 pub(crate) fn render_document_with_scratch(
     document: &crate::document::Document,
-    measurer: &SkiaTextMeasurer,
+    measurer: &mut SkiaTextMeasurer,
     assets: &dyn ResourceProvider,
     options: RenderOptions,
     cpu_scratch: Option<&mut CpuRenderScratch>,
 ) -> Result<RenderOutput> {
     let layout = layout_document(document, measurer)?;
-    match options.backend {
+    let result = match options.backend {
         RenderBackendPreference::Cpu => {
             render_layout_cpu(layout, measurer, assets, options, cpu_scratch)
         }
@@ -165,7 +165,9 @@ pub(crate) fn render_document_with_scratch(
                 Err(_) => render_layout_cpu(&layout, measurer, assets, options, cpu_scratch),
             }
         }
-    }
+    };
+    measurer.clear_caches();
+    result
 }
 
 fn render_layout_cpu(
@@ -651,8 +653,8 @@ pub fn render_template(
     options: RenderOptions,
 ) -> Result<RenderOutput> {
     let document = template.instantiate(params)?;
-    let measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
-    render_document(&document, &measurer, assets, options)
+    let mut measurer = SkiaTextMeasurer::with_fonts(assets.fonts().to_vec());
+    render_document(&document, &mut measurer, assets, options)
 }
 
 fn draw_node(

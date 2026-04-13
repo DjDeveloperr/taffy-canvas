@@ -131,8 +131,8 @@ where
 
 #[derive(Clone, Debug, Default)]
 pub struct MemoryAssetProvider {
-    assets: BTreeMap<String, Vec<u8>>,
-    fonts: Vec<FontAsset>,
+    assets: Arc<BTreeMap<String, Vec<u8>>>,
+    fonts: Arc<Vec<FontAsset>>,
     decoded_images: Arc<RwLock<HashMap<String, Image>>>,
     prepared_images: Arc<RwLock<HashMap<(String, PreparedImageKey), Image>>>,
 }
@@ -140,8 +140,8 @@ pub struct MemoryAssetProvider {
 impl MemoryAssetProvider {
     pub fn new(assets: BTreeMap<String, Vec<u8>>) -> Self {
         Self {
-            assets,
-            fonts: Vec::new(),
+            assets: Arc::new(assets),
+            fonts: Arc::new(Vec::new()),
             decoded_images: Arc::new(RwLock::new(HashMap::new())),
             prepared_images: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -149,7 +149,7 @@ impl MemoryAssetProvider {
 
     pub fn insert_asset(&mut self, key: impl Into<String>, bytes: Vec<u8>) {
         let key = key.into();
-        self.assets.insert(key.clone(), bytes);
+        Arc::make_mut(&mut self.assets).insert(key.clone(), bytes);
         self.decoded_images
             .write()
             .expect("decoded image cache lock")
@@ -161,7 +161,7 @@ impl MemoryAssetProvider {
     }
 
     pub fn register_font(&mut self, family: impl Into<String>, bytes: Vec<u8>) {
-        self.fonts.push(FontAsset::new(family, bytes));
+        Arc::make_mut(&mut self.fonts).push(FontAsset::new(family, bytes));
     }
 
     pub fn asset_count(&self) -> usize {
@@ -198,7 +198,7 @@ impl AssetProvider for MemoryAssetProvider {
 
 impl ResourceProvider for MemoryAssetProvider {
     fn fonts(&self) -> &[FontAsset] {
-        &self.fonts
+        self.fonts.as_slice()
     }
 
     fn load_image(&self, key: &str) -> Result<Image> {
@@ -217,7 +217,7 @@ impl ResourceProvider for MemoryAssetProvider {
             .get(key)
             .ok_or_else(|| TaffyCanvasError::MissingAsset(key.to_string()))?;
         let image = Image::from_encoded(Data::new_copy(bytes))
-            .and_then(|image| image.make_raster_image(None, Some(CachingHint::Allow)))
+            .and_then(|image| image.make_raster_image(None, Some(CachingHint::Disallow)))
             .ok_or_else(|| TaffyCanvasError::Render(format!("failed to decode image `{key}`")))?;
 
         let mut cache = self
@@ -354,7 +354,7 @@ impl ResourceProvider for FileSystemResourceProvider {
 
         let bytes = self.load(key)?;
         let image = Image::from_encoded(Data::new_copy(&bytes))
-            .and_then(|image| image.make_raster_image(None, Some(CachingHint::Allow)))
+            .and_then(|image| image.make_raster_image(None, Some(CachingHint::Disallow)))
             .ok_or_else(|| TaffyCanvasError::Render(format!("failed to decode image `{key}`")))?;
 
         let mut cache = self
@@ -408,6 +408,13 @@ fn prepare_image(image: Image, request: &PreparedImageRequest<'_>) -> Result<Ima
         ));
     }
 
+    if request.radius <= 0.0
+        && image.width() as u32 == request.width
+        && image.height() as u32 == request.height
+    {
+        return Ok(image);
+    }
+
     let mut surface = surfaces::raster_n32_premul((request.width as i32, request.height as i32))
         .ok_or_else(|| {
             TaffyCanvasError::Render("failed to create prepared image surface".to_string())
@@ -447,7 +454,7 @@ fn prepare_image(image: Image, request: &PreparedImageRequest<'_>) -> Result<Ima
 
     surface
         .image_snapshot()
-        .make_raster_image(None, Some(CachingHint::Allow))
+        .make_raster_image(None, Some(CachingHint::Disallow))
         .ok_or_else(|| TaffyCanvasError::Render("failed to snapshot prepared image".to_string()))
 }
 

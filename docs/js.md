@@ -83,7 +83,7 @@ type RenderBackend = "auto" | "cpu" | "gpu"
 ```ts
 interface RenderConfig {
   backend?: RenderBackend
-  outputFormat?: "png" | "webp"
+  outputFormat?: "png" | "webp" | "raw"
   outputSize?: "fast" | "balanced" | "small"
   webpMode?: "lossless" | "lossy"
   webpQuality?: number
@@ -101,6 +101,9 @@ When `outputFormat` is `"webp"`:
 - `outputSize` controls encoder effort for lossy WebP and effort/size tradeoff for lossless WebP
 
 `webpQuality` must be between `0` and `100`.
+
+When `outputFormat` is `"raw"`, the render APIs return unencoded RGBA bytes in row-major order
+instead of PNG or WebP data. The returned `Buffer` length is always `width * height * 4`.
 
 ## Handle Types
 

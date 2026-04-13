@@ -658,7 +658,11 @@ where
     let output = renderer
         .render_owned(template, params, resources, options)
         .map_err(to_napi_error)?;
-    Ok(output.encoded_bytes)
+    if options.include_encoded {
+        Ok(output.encoded_bytes)
+    } else {
+        Ok(output.pixels_rgba)
+    }
 }
 
 fn inspect_template_layout(template: &Template, params: TemplateParams) -> Result<Value> {
@@ -850,13 +854,15 @@ fn parse_render_options(input: Option<Either<String, RenderConfig>>) -> Result<R
         }
     };
 
+    let return_rgba = matches!(output_format.as_deref(), Some("raw"));
+
     let output_format = match output_format.as_deref() {
-        None | Some("png") => EncodedImageFormat::Png,
+        None | Some("png") | Some("raw") => EncodedImageFormat::Png,
         Some("webp") => EncodedImageFormat::Webp,
         Some(other) => {
             return Err(Error::new(
                 Status::InvalidArg,
-                format!("outputFormat must be `png` or `webp`, got `{other}`"),
+                format!("outputFormat must be `png`, `webp`, or `raw`, got `{other}`"),
             ));
         }
     };
@@ -901,8 +907,8 @@ fn parse_render_options(input: Option<Either<String, RenderConfig>>) -> Result<R
         output_size,
         webp_mode,
         webp_quality,
-        include_encoded: true,
-        include_rgba: false,
+        include_encoded: !return_rgba,
+        include_rgba: return_rgba,
         ..RenderOptions::default()
     })
 }

@@ -1,4 +1,9 @@
-use std::ops::Range;
+use std::{
+    cell::RefCell,
+    collections::{HashMap, hash_map::DefaultHasher},
+    hash::{Hash, Hasher},
+    ops::Range,
+};
 
 use skia_safe::{
     Color as SkColor, FontMgr, FontStyle,
@@ -39,16 +44,22 @@ thread_local! {
         collection.enable_font_fallback();
         collection
     };
+    static CUSTOM_FONT_COLLECTIONS: RefCell<HashMap<u64, FontCollection>> = RefCell::new(HashMap::new());
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct SkiaTextMeasurer {
     fonts: Vec<FontAsset>,
+    font_collection_key: Option<u64>,
 }
 
 impl SkiaTextMeasurer {
     pub fn with_fonts(fonts: Vec<FontAsset>) -> Self {
-        Self { fonts }
+        let font_collection_key = (!fonts.is_empty()).then(|| font_collection_key(&fonts));
+        Self {
+            fonts,
+            font_collection_key,
+        }
     }
 
     pub fn build_paragraph_scene(
@@ -56,11 +67,46 @@ impl SkiaTextMeasurer {
         fragments: &[InlineFragment],
         style: &StyleSpec,
     ) -> ParagraphScene {
-        if self.fonts.is_empty() {
-            FONT_COLLECTION.with(|collection| build_paragraph_scene(collection, fragments, style))
-        } else {
-            let collection = build_font_collection(&self.fonts);
-            build_paragraph_scene(&collection, fragments, style)
+        match self.font_collection_key {
+            Some(key) => CUSTOM_FONT_COLLECTIONS.with(|collections| {
+                let mut collections = collections.borrow_mut();
+                let collection = collections
+                    .entry(key)
+                    .or_insert_with(|| build_font_collection(&self.fonts));
+                build_paragraph_scene(collection, fragments, style)
+            }),
+            None => FONT_COLLECTION
+                .with(|collection| build_paragraph_scene(collection, fragments, style)),
+        }
+    }
+
+    pub fn clear_caches(&self) {
+        match self.font_collection_key {
+            Some(key) => CUSTOM_FONT_COLLECTIONS.with(|collections| {
+                if let Some(collection) = collections.borrow_mut().get_mut(&key) {
+                    collection.clear_caches();
+                }
+            }),
+            None => FONT_COLLECTION.with(|collection| {
+                let mut collection = collection.clone();
+                collection.clear_caches();
+            }),
+        }
+    }
+
+    pub fn paragraph_cache_count(&self) -> usize {
+        match self.font_collection_key {
+            Some(key) => CUSTOM_FONT_COLLECTIONS.with(|collections| {
+                collections
+                    .borrow_mut()
+                    .get_mut(&key)
+                    .map(|collection| collection.paragraph_cache_mut().count() as usize)
+                    .unwrap_or(0)
+            }),
+            None => FONT_COLLECTION.with(|collection| {
+                let mut collection = collection.clone();
+                collection.paragraph_cache_mut().count() as usize
+            }),
         }
     }
 }
@@ -207,6 +253,15 @@ fn build_font_collection(fonts: &[FontAsset]) -> FontCollection {
         collection.set_default_font_manager_and_family_names(Some(provider.into()), &family_names);
     }
     collection
+}
+
+fn font_collection_key(fonts: &[FontAsset]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for font in fonts {
+        font.family.hash(&mut hasher);
+        font.bytes.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn inline_image_placeholder(image: &InlineImageRun) -> PlaceholderStyle {
