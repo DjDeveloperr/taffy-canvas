@@ -6,12 +6,14 @@ use std::time::{Duration, Instant};
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use rayon::scope;
 use skia_safe::{
-    Color as SkColor, EncodedImageFormat as SkEncodedImageFormat, Paint, Rect, surfaces,
+    Color as SkColor, EncodedImageFormat as SkEncodedImageFormat, FontMgr, FontStyle, Paint, Rect,
+    surfaces,
 };
 use taffy_canvas_core::{
-    EncodedImageFormat, MemoryAssetProvider, OutputSize, PreparedImageRequest,
-    RenderBackendPreference, RenderOptions, Renderer, RendererConfig, RendererThreads,
-    ResourceProvider, Template, TemplateParams, WebpEncodingMode,
+    EncodedImageFormat, FontAsset, InlineFragment, MemoryAssetProvider, OutputSize,
+    PreparedImageRequest, RenderBackendPreference, RenderOptions, Renderer, RendererConfig,
+    RendererThreads, ResourceProvider, SkiaTextMeasurer, StyleSpec, Template, TemplateParams,
+    TextMeasurer, TextRun, WebpEncodingMode,
 };
 
 fn bench_render(c: &mut Criterion) {
@@ -128,6 +130,95 @@ fn bench_render(c: &mut Criterion) {
         });
     });
 
+    c.bench_function("hot_prepared_image_exact_size_cold", |b| {
+        b.iter(|| {
+            let mut cold_assets = MemoryAssetProvider::new(BTreeMap::new());
+            cold_assets.insert_asset("swatch", image_bytes.clone());
+            let image = ResourceProvider::load_prepared_image(
+                &cold_assets,
+                black_box(&PreparedImageRequest {
+                    key: "swatch",
+                    width: 512,
+                    height: 512,
+                    fit: taffy_canvas_core::ImageFit::Cover,
+                    radius: 0.0,
+                }),
+            )
+            .unwrap();
+            black_box(image);
+        });
+    });
+
+    c.bench_function("hot_prepared_image_resized_cold", |b| {
+        b.iter(|| {
+            let mut cold_assets = MemoryAssetProvider::new(BTreeMap::new());
+            cold_assets.insert_asset("swatch", image_bytes.clone());
+            let image = ResourceProvider::load_prepared_image(
+                &cold_assets,
+                black_box(&PreparedImageRequest {
+                    key: "swatch",
+                    width: 448,
+                    height: 448,
+                    fit: taffy_canvas_core::ImageFit::Cover,
+                    radius: 0.0,
+                }),
+            )
+            .unwrap();
+            black_box(image);
+        });
+    });
+
+    let paragraph_fragments = sample_paragraph_fragments();
+    let paragraph_style = sample_paragraph_style();
+    let custom_font = sample_font_asset();
+    let mut custom_font_style = paragraph_style.clone();
+    custom_font_style.font.family = custom_font.family.clone();
+    let custom_measurer = SkiaTextMeasurer::with_fonts(vec![custom_font]);
+
+    c.bench_function("hot_paragraph_scene_build_system_font", |b| {
+        let measurer = SkiaTextMeasurer::default();
+        b.iter(|| {
+            let scene = measurer.build_paragraph_scene(
+                black_box(paragraph_fragments.as_slice()),
+                black_box(&paragraph_style),
+            );
+            black_box(scene);
+        });
+    });
+
+    c.bench_function("hot_paragraph_scene_build_custom_font", |b| {
+        b.iter(|| {
+            let scene = custom_measurer.build_paragraph_scene(
+                black_box(paragraph_fragments.as_slice()),
+                black_box(&custom_font_style),
+            );
+            black_box(scene);
+        });
+    });
+
+    c.bench_function("hot_paragraph_measure_system_font", |b| {
+        let measurer = SkiaTextMeasurer::default();
+        b.iter(|| {
+            let metrics = measurer.measure_fragments(
+                black_box(paragraph_fragments.as_slice()),
+                black_box(&paragraph_style),
+                black_box(Some(360.0)),
+            );
+            black_box(metrics);
+        });
+    });
+
+    c.bench_function("hot_paragraph_measure_custom_font", |b| {
+        b.iter(|| {
+            let metrics = custom_measurer.measure_fragments(
+                black_box(paragraph_fragments.as_slice()),
+                black_box(&custom_font_style),
+                black_box(Some(360.0)),
+            );
+            black_box(metrics);
+        });
+    });
+
     c.bench_function("image_grid_render_cached", |b| {
         b.iter(|| {
             let _ = renderer.render(
@@ -240,6 +331,37 @@ fn image_grid_xml(image_count: usize) -> String {
     }
     xml.push_str("</view>");
     xml
+}
+
+fn sample_font_asset() -> FontAsset {
+    let typeface = FontMgr::new()
+        .legacy_make_typeface(Some("monospace"), FontStyle::default())
+        .or_else(|| FontMgr::new().legacy_make_typeface(Some("serif"), FontStyle::default()))
+        .expect("system font available");
+    let (bytes, _) = typeface.to_font_data().expect("font bytes");
+    FontAsset::new("TaffyBenchMono", bytes)
+}
+
+fn sample_paragraph_fragments() -> Vec<InlineFragment> {
+    vec![InlineFragment::Text(TextRun {
+        text: "Battle HUD benchmark text with status icons, move labels, and wrapped metadata."
+            .to_string(),
+        style: sample_paragraph_style(),
+        href: None,
+    })]
+}
+
+fn sample_paragraph_style() -> StyleSpec {
+    StyleSpec {
+        font: taffy_canvas_core::FontStyleSpec {
+            family: "monospace".to_string(),
+            size: 18,
+            ..taffy_canvas_core::FontStyleSpec::default()
+        },
+        line_height: Some(taffy_canvas_core::LineHeightValue::Multiplier(1.2)),
+        letter_spacing: 0.2,
+        ..StyleSpec::default()
+    }
 }
 
 fn bench_async_pool_throughput(
