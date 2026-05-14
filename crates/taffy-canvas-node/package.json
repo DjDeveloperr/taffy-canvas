@@ -38,6 +38,7 @@
     "prepare:platform": "node ./scripts/prepare-platform-package.mjs",
     "sync:versions": "node ./scripts/sync-package-versions.mjs",
     "pack:current": "node ./scripts/pack-current-platform.mjs",
+    "publish:manual": "node ./scripts/publish-packed-release.mjs",
     "test:smoke": "npm run build && node ./scripts/smoke-test.mjs",
     "test:memory": "npm run build && node --expose-gc ./scripts/memory-stress.mjs"
   },

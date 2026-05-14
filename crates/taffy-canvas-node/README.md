@@ -54,3 +54,11 @@ CI publishing:
 - The release workflow builds and publishes the platform packages first, then publishes `taffy-canvas`.
 - npm Trusted Publishing must be configured for every package name above with `.github/workflows/release-npm.yml` as the trusted workflow.
 - If Trusted Publishing is not configured, add an npm automation token as the GitHub secret `NPM_TOKEN`; the release workflow uses it automatically.
+
+Manual OTP publishing:
+
+```bash
+npm run publish:npm:manual
+```
+
+This triggers the pack-only CI workflow, downloads every packed platform tarball, prompts for npm OTPs, publishes platform packages first, and publishes `taffy-canvas` last.

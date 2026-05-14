@@ -1,0 +1,121 @@
+name: Pack npm Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to pack
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  pack-platform:
+    name: Pack ${{ matrix.target.id }}
+    runs-on: ${{ matrix.target.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - id: darwin-arm64
+            runner: macos-latest
+          - id: darwin-x64
+            runner: macos-13
+          - id: linux-x64-gnu
+            runner: ubuntu-latest
+          - id: win32-x64-msvc
+            runner: windows-latest
+
+    defaults:
+      run:
+        working-directory: crates/taffy-canvas-node
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Linux system packages
+        if: matrix.target.id == 'linux-x64-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libegl1-mesa-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libgl1-mesa-dev \
+            libx11-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: taffy-canvas-v1
+          cache-on-failure: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Sync npm package versions
+        run: npm run sync:versions
+
+      - name: Run Node smoke test
+        run: npm run test:smoke
+
+      - name: Prepare platform package
+        run: |
+          npm run build
+          npm run prepare:platform
+
+      - name: Pack platform package
+        run: |
+          node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
+          npm pack ./npm/${{ matrix.target.id }} --pack-destination dist
+
+      - name: Upload platform package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-${{ matrix.target.id }}
+          path: crates/taffy-canvas-node/dist/*.tgz
+          if-no-files-found: error
+
+  pack-main:
+    name: Pack taffy-canvas
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: crates/taffy-canvas-node
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Sync npm package versions
+        run: npm run sync:versions
+
+      - name: Pack main package
+        run: |
+          node -e "require('node:fs').mkdirSync('dist', { recursive: true })"
+          npm pack --pack-destination dist
+
+      - name: Upload main package
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-main
+          path: crates/taffy-canvas-node/dist/*.tgz
+          if-no-files-found: error

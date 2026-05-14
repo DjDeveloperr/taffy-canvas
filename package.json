@@ -20,6 +20,7 @@
     "test:memory": "npm --workspace crates/taffy-canvas-node run test:memory",
     "bench": "cargo bench -p taffy-canvas-core --bench render -- --sample-size 10",
     "pack": "npm --workspace crates/taffy-canvas-node run pack:current",
+    "publish:npm:manual": "npm --workspace crates/taffy-canvas-node run publish:manual --",
     "sync:versions": "npm --workspace crates/taffy-canvas-node run sync:versions",
     "ci": "npm run fmt && npm run check && npm run test"
   }
