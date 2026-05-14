@@ -47,3 +47,10 @@ Packing the main package and the current platform binary package:
 ```bash
 npm run pack:current
 ```
+
+CI publishing:
+
+- GitHub Releases whose tag matches this package version publish the npm packages.
+- The release workflow builds and publishes the platform packages first, then publishes `taffy-canvas`.
+- npm Trusted Publishing must be configured for every package name above with `.github/workflows/release-npm.yml` as the trusted workflow.
+- If Trusted Publishing is not configured, add an npm automation token as the GitHub secret `NPM_TOKEN`; the release workflow uses it automatically.

@@ -23,7 +23,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Verify release tag matches npm package version
         id: version
@@ -63,6 +63,8 @@ jobs:
     defaults:
       run:
         working-directory: crates/taffy-canvas-node
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Check out repository
@@ -91,7 +93,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Sync npm package versions
@@ -120,6 +122,8 @@ jobs:
     defaults:
       run:
         working-directory: crates/taffy-canvas-node
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Check out repository
@@ -128,7 +132,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Sync npm package versions
