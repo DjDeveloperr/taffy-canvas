@@ -89,10 +89,10 @@ function triggerAndWaitForPackRun(ref) {
   console.log(`Triggering ${workflowName} for ${ref}...`)
   run('gh', ['workflow', 'run', workflowName, '--ref', ref, '-f', `ref=${ref}`])
 
-  const run = waitForCreatedRun(startedAt)
-  console.log(`Waiting for GitHub Actions run ${run.databaseId}...`)
-  run('gh', ['run', 'watch', String(run.databaseId), '--exit-status'])
-  return String(run.databaseId)
+  const workflowRun = waitForCreatedRun(startedAt)
+  console.log(`Waiting for GitHub Actions run ${workflowRun.databaseId}...`)
+  run('gh', ['run', 'watch', String(workflowRun.databaseId), '--exit-status'])
+  return String(workflowRun.databaseId)
 }
 
 function waitForCreatedRun(startedAt) {
